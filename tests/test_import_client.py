@@ -1,5 +1,90 @@
+import uuid
+
 import responses
-from clients.import_client import MAX_MANIFEST_FILES, ImportClient
+from clients.import_client import (
+    DEFAULT_BATCH_SIZE,
+    ImportClient,
+    ImportFile,
+    calculate_batch_size,
+    prepare_import_files,
+)
+
+
+class TestImportFile:
+    """Tests for ImportFile class."""
+
+    def test_initialization(self):
+        """Should store provided values."""
+        upload_key = uuid.uuid4()
+        import_file = ImportFile(
+            upload_key=upload_key,
+            file_path="sample.zarr/.zattrs",
+            local_path="/data/sample.zarr/.zattrs",
+        )
+
+        assert import_file.upload_key == upload_key
+        assert import_file.file_path == "sample.zarr/.zattrs"
+        assert import_file.local_path == "/data/sample.zarr/.zattrs"
+
+    def test_repr(self):
+        """Should have useful repr."""
+        upload_key = uuid.uuid4()
+        import_file = ImportFile(upload_key, "file.txt", "/path/file.txt")
+        repr_str = repr(import_file)
+
+        assert "ImportFile" in repr_str
+        assert "file.txt" in repr_str
+
+
+class TestPrepareImportFiles:
+    """Tests for prepare_import_files function."""
+
+    def test_creates_import_files_with_zarr_prefix(self):
+        """Should create ImportFile objects with zarr_name prefix in file_path."""
+        files = [
+            ("/data/sample.zarr/.zattrs", ".zattrs"),
+            ("/data/sample.zarr/.zgroup", ".zgroup"),
+            ("/data/sample.zarr/0/0/0", "0/0/0"),
+        ]
+
+        import_files = prepare_import_files(files, "sample.zarr")
+
+        assert len(import_files) == 3
+        assert import_files[0].file_path == "sample.zarr/.zattrs"
+        assert import_files[0].local_path == "/data/sample.zarr/.zattrs"
+        assert import_files[1].file_path == "sample.zarr/.zgroup"
+        assert import_files[2].file_path == "sample.zarr/0/0/0"
+
+        # Each should have a unique upload_key
+        upload_keys = [f.upload_key for f in import_files]
+        assert len(set(upload_keys)) == 3
+
+    def test_generates_unique_upload_keys(self):
+        """Should generate unique UUID upload keys for each file."""
+        files = [("/path/a", "a"), ("/path/b", "b")]
+
+        import_files = prepare_import_files(files, "test.zarr")
+
+        assert import_files[0].upload_key != import_files[1].upload_key
+        assert isinstance(import_files[0].upload_key, uuid.UUID)
+
+
+class TestCalculateBatchSize:
+    """Tests for calculate_batch_size function."""
+
+    def test_returns_default_for_empty_list(self):
+        """Should return default batch size for empty list."""
+        assert calculate_batch_size([]) == DEFAULT_BATCH_SIZE
+
+    def test_calculates_based_on_file_size(self):
+        """Should calculate batch size based on payload size."""
+        import_files = [ImportFile(uuid.uuid4(), f"sample.zarr/file{i}.txt", f"/path/file{i}.txt") for i in range(100)]
+
+        batch_size = calculate_batch_size(import_files)
+
+        # Should be a reasonable number based on 1MB limit
+        assert batch_size > 0
+        assert batch_size < 50000  # Sanity check
 
 
 class TestImportClient:
@@ -11,74 +96,72 @@ class TestImportClient:
         assert client.base_url == "https://api2.pennsieve.net/import"
 
     @responses.activate
-    def test_create_manifest(self, mock_session_manager):
-        """Should create import manifest with asset_name option."""
+    def test_create(self, mock_session_manager):
+        """Should create import manifest with correct payload."""
         responses.add(
             responses.POST,
-            "https://api2.pennsieve.net/import",
-            json={
-                "id": "manifest-123",
-                "files": [{"uploadKey": "key-1"}, {"uploadKey": "key-2"}],
-            },
+            "https://api2.pennsieve.net/import?dataset_id=dataset-123",
+            json={"id": "import-123"},
             status=201,
         )
 
         client = ImportClient(mock_session_manager)
-        result = client.create_manifest(
-            integration_id="integration-123",
-            files=[
-                {"targetPath": "sample.zarr/.zattrs", "targetName": ".zattrs"},
-                {"targetPath": "sample.zarr/.zgroup", "targetName": ".zgroup"},
-            ],
-            asset_type="ome-zarr",
-            asset_name="sample.zarr",
-            provenance_id="provenance-123",
-        )
+        import_files = [
+            ImportFile(uuid.UUID("11111111-1111-1111-1111-111111111111"), "sample.zarr/.zattrs", "/path/.zattrs"),
+        ]
+        options = {
+            "asset_type": "ome-zarr",
+            "asset_name": "sample.zarr",
+            "properties": {},
+            "provenance_id": "integration-123",
+        }
 
-        assert result["id"] == "manifest-123"
-        assert len(result["files"]) == 2
+        result = client.create("integration-123", "dataset-123", import_files, options)
+
+        assert result == "import-123"
 
         # Verify request body
-        request = responses.calls[0].request
         import json
 
+        request = responses.calls[0].request
         body = json.loads(request.body)
-        assert body["integrationId"] == "integration-123"
-        assert body["importType"] == "viewerassets"
-        assert body["options"]["asset_type"] == "ome-zarr"
+        assert body["integration_id"] == "integration-123"
+        assert body["import_type"] == "viewerassets"
+        assert body["files"][0]["upload_key"] == "11111111-1111-1111-1111-111111111111"
+        assert body["files"][0]["file_path"] == "sample.zarr/.zattrs"
         assert body["options"]["asset_name"] == "sample.zarr"
-        assert body["options"]["provenance_id"] == "provenance-123"
 
     @responses.activate
     def test_append_files(self, mock_session_manager):
         """Should append files to existing manifest."""
         responses.add(
             responses.POST,
-            "https://api2.pennsieve.net/import/manifest-123/files",
-            json={"files": [{"uploadKey": "key-3"}]},
+            "https://api2.pennsieve.net/import/import-123/files?dataset_id=dataset-123",
+            json={},
             status=200,
         )
 
         client = ImportClient(mock_session_manager)
-        result = client.append_files(
-            manifest_id="manifest-123",
-            files=[{"targetPath": "sample.zarr/0/.zarray", "targetName": ".zarray"}],
-        )
+        import_files = [
+            ImportFile(uuid.UUID("22222222-2222-2222-2222-222222222222"), "sample.zarr/0/0", "/path/0/0"),
+        ]
 
-        assert len(result["files"]) == 1
+        client.append_files("import-123", "dataset-123", import_files)
+
+        assert len(responses.calls) == 1
 
     @responses.activate
-    def test_get_presigned_url(self, mock_session_manager):
+    def test_get_presign_url(self, mock_session_manager):
         """Should get presigned URL for file upload."""
         responses.add(
             responses.GET,
-            "https://api2.pennsieve.net/import/manifest-123/upload/key-1/presign",
+            "https://api2.pennsieve.net/import/import-123/upload/upload-key-1/presign?dataset_id=dataset-123",
             json={"url": "https://s3.amazonaws.com/bucket/key?signature=xxx"},
             status=200,
         )
 
         client = ImportClient(mock_session_manager)
-        result = client.get_presigned_url("manifest-123", "key-1")
+        result = client.get_presign_url("import-123", "dataset-123", "upload-key-1")
 
         assert result == "https://s3.amazonaws.com/bucket/key?signature=xxx"
 
@@ -101,91 +184,24 @@ class TestImportClient:
         assert len(responses.calls) == 1
         assert responses.calls[0].request.body == b"test content"
 
-    def test_prepare_file_entries(self, mock_session_manager, sample_zarr_files):
-        """Should prepare file entries with correct paths."""
-        client = ImportClient(mock_session_manager)
-        entries = client.prepare_file_entries(sample_zarr_files, "sample.zarr")
-
-        assert len(entries) == 5
-
-        # Check first entry
-        assert entries[0]["targetPath"] == "sample.zarr/.zattrs"
-        assert entries[0]["targetName"] == ".zattrs"
-        assert entries[0]["fileExtension"] == ""  # Hidden files have no extension
-        assert entries[0]["_localPath"] == sample_zarr_files[0][0]
-
     @responses.activate
-    def test_create_manifest_batched_single_batch(self, mock_session_manager):
+    def test_create_batched_single_batch(self, mock_session_manager):
         """Should create manifest without batching for small file lists."""
         responses.add(
             responses.POST,
-            "https://api2.pennsieve.net/import",
-            json={
-                "id": "manifest-123",
-                "files": [
-                    {"uploadKey": "key-0"},
-                    {"uploadKey": "key-1"},
-                ],
-            },
+            "https://api2.pennsieve.net/import?dataset_id=dataset-123",
+            json={"id": "import-123"},
             status=201,
         )
 
         client = ImportClient(mock_session_manager)
-        files = [
-            ("/path/to/.zattrs", ".zattrs"),
-            ("/path/to/.zgroup", ".zgroup"),
+        import_files = [
+            ImportFile(uuid.uuid4(), "sample.zarr/.zattrs", "/path/.zattrs"),
+            ImportFile(uuid.uuid4(), "sample.zarr/.zgroup", "/path/.zgroup"),
         ]
+        options = {"asset_type": "ome-zarr", "properties": {}, "provenance_id": "integration-123"}
 
-        manifest_id, entries = client.create_manifest_batched(
-            integration_id="integration-123",
-            files=files,
-            zarr_name="sample.zarr",
-            asset_type="ome-zarr",
-            provenance_id="provenance-123",
-        )
+        import_id = client.create_batched("integration-123", "dataset-123", import_files, options)
 
-        assert manifest_id == "manifest-123"
-        assert len(entries) == 2
-        assert entries[0]["uploadKey"] == "key-0"
-        assert entries[1]["uploadKey"] == "key-1"
-
-    @responses.activate
-    def test_create_manifest_batched_multiple_batches(self, mock_session_manager):
-        """Should batch manifest creation for large file lists."""
-        # Create more files than MAX_MANIFEST_FILES
-        num_files = MAX_MANIFEST_FILES + 5
-        files = [(f"/path/to/file{i}", f"file{i}") for i in range(num_files)]
-
-        # Response for initial create
-        responses.add(
-            responses.POST,
-            "https://api2.pennsieve.net/import",
-            json={
-                "id": "manifest-123",
-                "files": [{"uploadKey": f"key-{i}"} for i in range(MAX_MANIFEST_FILES)],
-            },
-            status=201,
-        )
-
-        # Response for append
-        responses.add(
-            responses.POST,
-            "https://api2.pennsieve.net/import/manifest-123/files",
-            json={
-                "files": [{"uploadKey": f"key-{MAX_MANIFEST_FILES + i}"} for i in range(5)],
-            },
-            status=200,
-        )
-
-        client = ImportClient(mock_session_manager)
-        manifest_id, entries = client.create_manifest_batched(
-            integration_id="integration-123",
-            files=files,
-            zarr_name="sample.zarr",
-            asset_type="ome-zarr",
-            provenance_id="provenance-123",
-        )
-
-        assert manifest_id == "manifest-123"
-        assert len(entries) == num_files
-        assert len(responses.calls) == 2  # create + append
+        assert import_id == "import-123"
+        assert len(responses.calls) == 1  # Only one create call, no appends

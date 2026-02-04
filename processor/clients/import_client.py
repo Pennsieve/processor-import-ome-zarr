@@ -1,15 +1,27 @@
+import json
 import logging
+import math
 import os
+import uuid
 
 import backoff
 import requests
 from clients.base_client import BaseClient, SessionManager
-from utils import get_file_extension
 
 log = logging.getLogger()
 
-# Maximum manifest size to avoid API Gateway limits
-MAX_MANIFEST_FILES = 1000
+MAX_REQUEST_SIZE_BYTES = 1 * 1024 * 1024  # Stay under AWS API Gateway payload limit
+DEFAULT_BATCH_SIZE = 1000
+
+
+class ImportFile:
+    def __init__(self, upload_key, file_path, local_path):
+        self.upload_key = upload_key
+        self.file_path = file_path
+        self.local_path = local_path
+
+    def __repr__(self):
+        return f"ImportFile(upload_key={self.upload_key}, file_path={self.file_path}, local_path={self.local_path})"
 
 
 class ImportClient(BaseClient):
@@ -26,99 +38,133 @@ class ImportClient(BaseClient):
         self.base_url = f"{session_manager.api_host2}/import"
 
     @BaseClient.retry_with_refresh
-    def create_manifest(
-        self,
-        integration_id: str,
-        files: list[dict],
-        asset_type: str,
-        asset_name: str,
-        provenance_id: str,
-    ) -> dict:
+    def create(self, integration_id: str, dataset_id: str, import_files: list[ImportFile], options: dict) -> str:
         """
         Create an import manifest for viewer assets.
 
-        Uses the asset_name option to signal that all files should be grouped
-        under a single viewer asset record pointing to the shared prefix.
-
         Args:
             integration_id: Workflow integration UUID
-            files: List of file dicts with uploadId, s3Key, targetPath, targetName
-            asset_type: Type of viewer asset (e.g., 'ome-zarr')
-            asset_name: Name for the viewer asset (top-level prefix)
-            provenance_id: Provenance UUID for the asset
+            dataset_id: Dataset ID
+            import_files: List of ImportFile objects
+            options: Options dict with asset_type, properties, provenance_id, and optionally asset_name
 
         Returns:
-            Manifest response dict containing manifest ID and file upload info
+            Import manifest ID
         """
-        payload = {
-            "integrationId": integration_id,
-            "importType": "viewerassets",
-            "files": files,
-            "options": {
-                "asset_type": asset_type,
-                "asset_name": asset_name,
-                "properties": {},
-                "provenance_id": provenance_id,
-            },
+        url = f"{self.base_url}?dataset_id={dataset_id}"
+
+        body = {
+            "integration_id": integration_id,
+            "import_type": "viewerassets",
+            "files": [{"upload_key": str(f.upload_key), "file_path": f.file_path} for f in import_files],
+            "options": options,
         }
 
-        log.info(f"Creating import manifest with {len(files)} files, asset_name={asset_name}")
-
-        response = requests.post(
-            self.base_url,
-            json=payload,
-            headers=self._get_headers(),
-        )
-        response.raise_for_status()
-
-        result = response.json()
-        log.info(f"Created manifest: {result.get('id')}")
-        return result
+        try:
+            response = requests.post(url, headers=self._get_headers(), json=body)
+            response.raise_for_status()
+            data = response.json()
+            return data["id"]
+        except requests.HTTPError as e:
+            log.error(f"Failed to create import: {e}")
+            raise
+        except json.JSONDecodeError as e:
+            log.error(f"Failed to decode import response: {e}")
+            raise
 
     @BaseClient.retry_with_refresh
-    def append_files(self, manifest_id: str, files: list[dict]) -> dict:
+    def append_files(self, import_id: str, dataset_id: str, import_files: list[ImportFile]) -> dict:
         """
-        Append additional files to an existing manifest.
+        Append files to an existing import manifest.
 
         Args:
-            manifest_id: ID of the existing manifest
-            files: List of file dicts to append
+            import_id: The import manifest ID
+            dataset_id: The dataset ID
+            import_files: List of ImportFile objects to append
 
         Returns:
-            Updated manifest response
+            Response from the API
         """
-        url = f"{self.base_url}/{manifest_id}/files"
-        payload = {"files": files}
+        url = f"{self.base_url}/{import_id}/files?dataset_id={dataset_id}"
 
-        log.info(f"Appending {len(files)} files to manifest {manifest_id}")
+        body = {"files": [{"upload_key": str(f.upload_key), "file_path": f.file_path} for f in import_files]}
 
-        response = requests.post(
-            url,
-            json=payload,
-            headers=self._get_headers(),
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(url, headers=self._get_headers(), json=body)
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as e:
+            log.error(f"Failed to append files to import {import_id}: {e}")
+            raise
+        except json.JSONDecodeError as e:
+            log.error(f"Failed to decode append files response: {e}")
+            raise
 
-        return response.json()
+    def create_batched(
+        self, integration_id: str, dataset_id: str, import_files: list[ImportFile], options: dict
+    ) -> str:
+        """
+        Create an import manifest with batched file additions to avoid API Gateway size limits.
+
+        Args:
+            integration_id: The workflow/integration ID
+            dataset_id: The dataset ID
+            import_files: List of all ImportFile objects
+            options: Options dict for viewer assets
+
+        Returns:
+            The import ID
+        """
+        if not import_files:
+            raise ValueError("No files provided for import")
+
+        batch_size = calculate_batch_size(import_files)
+        total_files = len(import_files)
+        total_batches = math.ceil(total_files / batch_size)
+
+        log.info(f"Creating import manifest with {total_files} files in {total_batches} batch(es)")
+
+        first_batch = import_files[:batch_size]
+        import_id = self.create(integration_id, dataset_id, first_batch, options)
+
+        log.info(f"import_id={import_id} created manifest with initial batch of {len(first_batch)} files")
+
+        for batch_num in range(1, total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, total_files)
+            batch = import_files[start_idx:end_idx]
+
+            self.append_files(import_id, dataset_id, batch)
+            log.info(f"import_id={import_id} appended batch {batch_num + 1}/{total_batches} with {len(batch)} files")
+
+        return import_id
 
     @BaseClient.retry_with_refresh
-    def get_presigned_url(self, manifest_id: str, upload_key: str) -> str:
+    def get_presign_url(self, import_id: str, dataset_id: str, upload_key) -> str:
         """
         Get a presigned S3 URL for uploading a file.
 
         Args:
-            manifest_id: ID of the manifest
+            import_id: ID of the import manifest
+            dataset_id: The dataset ID
             upload_key: Upload key for the specific file
 
         Returns:
             Presigned S3 URL for PUT upload
         """
-        url = f"{self.base_url}/{manifest_id}/upload/{upload_key}/presign"
+        url = f"{self.base_url}/{import_id}/upload/{upload_key}/presign?dataset_id={dataset_id}"
 
-        response = requests.get(url, headers=self._get_headers())
-        response.raise_for_status()
-
-        return response.json()["url"]
+        try:
+            response = requests.get(url, headers=self._get_headers())
+            response.raise_for_status()
+            data = response.json()
+            return data["url"]
+        except requests.HTTPError as e:
+            log.error(f"Failed to get presign URL: {e}")
+            raise
+        except json.JSONDecodeError as e:
+            log.error(f"Failed to decode presign URL response: {e}")
+            raise
 
     @backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
     def upload_file(self, presigned_url: str, file_path: str) -> None:
@@ -133,95 +179,57 @@ class ImportClient(BaseClient):
             response = requests.put(presigned_url, data=f)
             response.raise_for_status()
 
-    def prepare_file_entries(self, files: list[tuple[str, str]], zarr_name: str) -> list[dict]:
-        """
-        Prepare file entries for the import manifest.
 
-        Args:
-            files: List of (absolute_path, relative_path) tuples
-            zarr_name: Name of the OME-Zarr directory (used as prefix)
+def prepare_import_files(files: list[tuple[str, str]], zarr_name: str) -> list[ImportFile]:
+    """
+    Prepare ImportFile objects from file tuples.
 
-        Returns:
-            List of file entry dicts for the manifest
-        """
-        entries = []
-        for abs_path, rel_path in files:
-            # Include zarr_name in the target path so files are grouped under it
-            target_path = os.path.join(zarr_name, rel_path)
-            filename = os.path.basename(rel_path)
-            extension = get_file_extension(filename)
+    Args:
+        files: List of (absolute_path, relative_path) tuples
+        zarr_name: Name of the OME-Zarr directory (used as prefix in file_path)
 
-            entries.append(
-                {
-                    "targetPath": target_path,
-                    "targetName": filename,
-                    "fileExtension": extension,
-                    # Store absolute path for later upload (not sent to API)
-                    "_localPath": abs_path,
-                }
-            )
-
-        return entries
-
-    def create_manifest_batched(
-        self,
-        integration_id: str,
-        files: list[tuple[str, str]],
-        zarr_name: str,
-        asset_type: str,
-        provenance_id: str,
-    ) -> tuple[str, list[dict]]:
-        """
-        Create an import manifest, batching if necessary to avoid API limits.
-
-        Args:
-            integration_id: Workflow integration UUID
-            files: List of (absolute_path, relative_path) tuples
-            zarr_name: Name of the OME-Zarr directory
-            asset_type: Type of viewer asset (e.g., 'ome-zarr')
-            provenance_id: Provenance UUID for the asset
-
-        Returns:
-            Tuple of (manifest_id, list of file entries with upload keys)
-        """
-        entries = self.prepare_file_entries(files, zarr_name)
-
-        # Create initial manifest with first batch
-        first_batch = entries[:MAX_MANIFEST_FILES]
-        manifest_files = [{k: v for k, v in e.items() if not k.startswith("_")} for e in first_batch]
-
-        result = self.create_manifest(
-            integration_id=integration_id,
-            files=manifest_files,
-            asset_type=asset_type,
-            asset_name=zarr_name,
-            provenance_id=provenance_id,
+    Returns:
+        List of ImportFile objects with client-generated upload keys
+    """
+    import_files = []
+    for abs_path, rel_path in files:
+        # file_path includes the zarr_name prefix so files are grouped under it
+        file_path = os.path.join(zarr_name, rel_path)
+        import_file = ImportFile(
+            upload_key=uuid.uuid4(),
+            file_path=file_path,
+            local_path=abs_path,
         )
+        import_files.append(import_file)
+    return import_files
 
-        manifest_id = result["id"]
 
-        # Map upload keys back to entries
-        file_results = result.get("files", [])
-        for i, file_result in enumerate(file_results):
-            entries[i]["uploadKey"] = file_result["uploadKey"]
+def calculate_batch_size(sample_files: list[ImportFile], max_size_bytes: int = MAX_REQUEST_SIZE_BYTES) -> int:
+    """
+    Calculate the optimal batch size for manifest files based on actual payload size.
 
-        # Append remaining batches
-        remaining = entries[MAX_MANIFEST_FILES:]
-        batch_num = 2
-        while remaining:
-            batch = remaining[:MAX_MANIFEST_FILES]
-            batch_files = [{k: v for k, v in e.items() if not k.startswith("_")} for e in batch]
+    Args:
+        sample_files: List of ImportFile objects to estimate size from
+        max_size_bytes: Maximum request size in bytes
 
-            log.info(f"Appending batch {batch_num} with {len(batch)} files")
-            append_result = self.append_files(manifest_id, batch_files)
+    Returns:
+        Number of files per batch
+    """
+    if not sample_files:
+        return DEFAULT_BATCH_SIZE
 
-            # Map upload keys
-            append_files_result = append_result.get("files", [])
-            start_idx = (batch_num - 1) * MAX_MANIFEST_FILES
-            for i, file_result in enumerate(append_files_result):
-                entries[start_idx + i]["uploadKey"] = file_result["uploadKey"]
+    # Calculate actual size of a sample file entry
+    sample_size = 0
+    sample_count = min(100, len(sample_files))
+    for f in sample_files[:sample_count]:
+        entry = {"upload_key": str(f.upload_key), "file_path": f.file_path}
+        sample_size += len(json.dumps(entry)) + 1  # +1 for comma separator
 
-            remaining = remaining[MAX_MANIFEST_FILES:]
-            batch_num += 1
+    avg_bytes_per_file = sample_size / sample_count
 
-        return manifest_id, entries
+    # Calculate batch size with safety margin (80% of limit)
+    usable_size = max_size_bytes * 0.8
+    batch_size = int(usable_size / avg_bytes_per_file)
+
+    # Ensure at least 1 file per batch
+    return max(1, batch_size)

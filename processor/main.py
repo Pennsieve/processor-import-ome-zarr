@@ -38,12 +38,6 @@ def main():
             log.info(f"Successfully imported OME-Zarr. Manifest: {manifest_id}")
         except Exception as e:
             log.error(f"Import failed: {e}")
-            # Mark workflow as failed if we have a workflow client
-            if importer.workflow_client:
-                try:
-                    importer.workflow_client.fail_integration(config.INTEGRATION_ID, str(e))
-                except Exception as fail_error:
-                    log.error(f"Failed to mark integration as failed: {fail_error}")
             sys.exit(1)
     else:
         log.info("Importer disabled, skipping Pennsieve upload")

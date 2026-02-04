@@ -1,6 +1,6 @@
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, mock_open, patch
 
-from importer import UPLOAD_WORKERS, OmeZarrImporter
+from importer import OmeZarrImporter
 
 
 class TestOmeZarrImporter:
@@ -35,91 +35,71 @@ class TestOmeZarrImporter:
         )
         mock_auth_class.assert_called_once_with(mock_session_manager)
         mock_auth_class.return_value.authenticate.assert_called_once()
+        mock_import_class.assert_called_once_with(mock_session_manager)
+        mock_wf_class.assert_called_once_with(mock_session_manager)
 
+    @patch("importer.requests")
+    @patch("builtins.open", new_callable=mock_open, read_data=b"file content")
     @patch("importer.AuthenticationClient")
     @patch("importer.ImportClient")
     @patch("importer.WorkflowClient")
     @patch("importer.SessionManager")
-    def test_upload_file(self, mock_sm_class, mock_wf_class, mock_import_class, mock_auth_class, mock_config):
-        """Should upload a single file using presigned URL."""
-        mock_import_client = Mock()
-        mock_import_class.return_value = mock_import_client
-        mock_import_client.get_presigned_url.return_value = "https://s3.example.com/presigned"
-
-        importer = OmeZarrImporter(mock_config)
-        importer._initialize_clients()
-
-        entry = {"uploadKey": "key-1", "_localPath": "/path/to/file"}
-        result = importer._upload_file("manifest-123", entry)
-
-        assert result == "key-1"
-        mock_import_client.get_presigned_url.assert_called_once_with("manifest-123", "key-1")
-        mock_import_client.upload_file.assert_called_once_with("https://s3.example.com/presigned", "/path/to/file")
-
-    @patch("importer.AuthenticationClient")
-    @patch("importer.ImportClient")
-    @patch("importer.WorkflowClient")
-    @patch("importer.SessionManager")
-    @patch("importer.ThreadPoolExecutor")
-    def test_upload_files_parallel(
-        self, mock_executor_class, mock_sm_class, mock_wf_class, mock_import_class, mock_auth_class, mock_config
+    @patch("importer.prepare_import_files")
+    def test_import_zarr(
+        self,
+        mock_prepare,
+        mock_sm_class,
+        mock_wf_class,
+        mock_import_class,
+        mock_auth_class,
+        mock_open_file,
+        mock_requests,
+        mock_config,
     ):
-        """Should upload files in parallel using thread pool."""
-        mock_executor = MagicMock()
-        mock_executor_class.return_value.__enter__.return_value = mock_executor
-
-        # Create mock futures
-        mock_future1 = Mock()
-        mock_future1.result.return_value = "key-1"
-        mock_future2 = Mock()
-        mock_future2.result.return_value = "key-2"
-
-        entries = [
-            {"uploadKey": "key-1", "_localPath": "/path/file1", "targetPath": "sample.zarr/file1"},
-            {"uploadKey": "key-2", "_localPath": "/path/file2", "targetPath": "sample.zarr/file2"},
-        ]
-
-        mock_executor.submit.side_effect = [mock_future1, mock_future2]
-
-        importer = OmeZarrImporter(mock_config)
-        importer._initialize_clients()
-
-        # Mock as_completed to return futures in order
-        with patch("importer.as_completed", return_value=[mock_future1, mock_future2]):
-            importer._upload_files_parallel("manifest-123", entries)
-
-        assert mock_executor.submit.call_count == 2
-        mock_executor_class.assert_called_once_with(max_workers=UPLOAD_WORKERS)
-
-    @patch("importer.AuthenticationClient")
-    @patch("importer.ImportClient")
-    @patch("importer.WorkflowClient")
-    @patch("importer.SessionManager")
-    def test_import_zarr(self, mock_sm_class, mock_wf_class, mock_import_class, mock_auth_class, mock_config):
         """Should orchestrate full import workflow."""
+        # Setup workflow client mock
+        mock_workflow_instance = Mock()
+        mock_workflow_instance.dataset_id = "dataset-123"
         mock_workflow_client = Mock()
-        mock_workflow_client.get_provenance_id.return_value = "provenance-123"
+        mock_workflow_client.get_workflow_instance.return_value = mock_workflow_instance
         mock_wf_class.return_value = mock_workflow_client
 
+        # Setup import client mock
         mock_import_client = Mock()
-        mock_import_client.create_manifest_batched.return_value = (
-            "manifest-123",
-            [{"uploadKey": "key-1", "_localPath": "/path/file1", "targetPath": "sample.zarr/file1"}],
-        )
-        mock_import_client.get_presigned_url.return_value = "https://s3.example.com/presigned"
+        mock_import_client.create_batched.return_value = "import-123"
+        mock_import_client.get_presign_url.return_value = "https://s3.example.com/presigned"
         mock_import_class.return_value = mock_import_client
+
+        # Setup prepare_import_files mock
+        mock_import_file = Mock()
+        mock_import_file.upload_key = "upload-key-1"
+        mock_import_file.local_path = "/path/file1"
+        mock_prepare.return_value = [mock_import_file]
+
+        # Setup requests mock
+        mock_requests.put.return_value.raise_for_status = Mock()
 
         importer = OmeZarrImporter(mock_config)
 
         files = [("/path/file1", "file1")]
         result = importer.import_zarr("sample.zarr", files)
 
-        assert result == "manifest-123"
-        mock_workflow_client.get_provenance_id.assert_called_once_with(mock_config.INTEGRATION_ID)
-        mock_import_client.create_manifest_batched.assert_called_once_with(
-            integration_id=mock_config.INTEGRATION_ID,
-            files=files,
-            zarr_name="sample.zarr",
-            asset_type=mock_config.ASSET_TYPE,
-            provenance_id="provenance-123",
-        )
+        assert result == "import-123"
+
+        # Verify workflow instance was fetched
+        mock_workflow_client.get_workflow_instance.assert_called_once_with(mock_config.INTEGRATION_ID)
+
+        # Verify prepare_import_files was called
+        mock_prepare.assert_called_once_with(files, "sample.zarr")
+
+        # Verify create_batched was called with correct options
+        mock_import_client.create_batched.assert_called_once()
+        call_kwargs = mock_import_client.create_batched.call_args[1]
+        assert call_kwargs["integration_id"] == mock_config.INTEGRATION_ID
+        assert call_kwargs["dataset_id"] == "dataset-123"
+        assert call_kwargs["options"]["asset_type"] == mock_config.ASSET_TYPE
+        assert call_kwargs["options"]["asset_name"] == "sample.zarr"
+        assert call_kwargs["options"]["provenance_id"] == mock_config.INTEGRATION_ID
+
+        # Verify file was uploaded
+        mock_import_client.get_presign_url.assert_called_once_with("import-123", "dataset-123", "upload-key-1")

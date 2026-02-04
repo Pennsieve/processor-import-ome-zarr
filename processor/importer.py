@@ -1,14 +1,16 @@
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
-from clients import AuthenticationClient, ImportClient, SessionManager, WorkflowClient
+import backoff
+import requests
+from clients import AuthenticationClient, ImportClient, SessionManager, WorkflowClient, prepare_import_files
 from config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger()
 
 # Number of parallel upload threads
-UPLOAD_WORKERS = 10
+UPLOAD_WORKERS = 4
 
 
 class OmeZarrImporter:
@@ -43,54 +45,6 @@ class OmeZarrImporter:
         self.import_client = ImportClient(self.session_manager)
         self.workflow_client = WorkflowClient(self.session_manager)
 
-    def _upload_file(self, manifest_id: str, entry: dict) -> str:
-        """
-        Upload a single file to S3.
-
-        Args:
-            manifest_id: Import manifest ID
-            entry: File entry dict with uploadKey and _localPath
-
-        Returns:
-            Upload key of the uploaded file
-        """
-        upload_key = entry["uploadKey"]
-        local_path = entry["_localPath"]
-
-        presigned_url = self.import_client.get_presigned_url(manifest_id, upload_key)
-        self.import_client.upload_file(presigned_url, local_path)
-
-        return upload_key
-
-    def _upload_files_parallel(self, manifest_id: str, entries: list[dict]) -> None:
-        """
-        Upload files in parallel using a thread pool.
-
-        Args:
-            manifest_id: Import manifest ID
-            entries: List of file entries to upload
-        """
-        total = len(entries)
-        completed = 0
-
-        log.info(f"Starting parallel upload of {total} files")
-
-        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
-            futures = {executor.submit(self._upload_file, manifest_id, entry): entry for entry in entries}
-
-            for future in as_completed(futures):
-                entry = futures[future]
-                try:
-                    future.result()  # Raises exception if upload failed
-                    completed += 1
-                    if completed % 100 == 0 or completed == total:
-                        log.info(f"Upload progress: {completed}/{total} files")
-                except Exception as e:
-                    log.error(f"Failed to upload {entry['targetPath']}: {e}")
-                    raise
-
-        log.info(f"Completed upload of {total} files")
-
     def import_zarr(self, zarr_name: str, files: list[tuple[str, str]]) -> str:
         """
         Import an OME-Zarr directory to Pennsieve.
@@ -108,21 +62,69 @@ class OmeZarrImporter:
         """
         self._initialize_clients()
 
-        # Get provenance ID from workflow integration
         integration_id = self.config.INTEGRATION_ID
-        provenance_id = self.workflow_client.get_provenance_id(integration_id)
 
-        # Create import manifest with asset_name to trigger single-record mode
-        manifest_id, entries = self.import_client.create_manifest_batched(
+        # Get dataset_id from workflow instance
+        workflow_instance = self.workflow_client.get_workflow_instance(integration_id)
+        dataset_id = workflow_instance.dataset_id
+
+        log.info(f"dataset_id={dataset_id} starting import of OME-Zarr files")
+
+        # Prepare import files with client-generated upload keys
+        import_files = prepare_import_files(files, zarr_name)
+
+        # Options for viewer asset import
+        options = {
+            "asset_type": self.config.ASSET_TYPE,
+            "asset_name": zarr_name,
+            "properties": {},
+            "provenance_id": integration_id,
+        }
+
+        # Create import manifest with batching
+        import_id = self.import_client.create_batched(
             integration_id=integration_id,
-            files=files,
-            zarr_name=zarr_name,
-            asset_type=self.config.ASSET_TYPE,
-            provenance_id=provenance_id,
+            dataset_id=dataset_id,
+            import_files=import_files,
+            options=options,
         )
 
-        # Upload all files
-        self._upload_files_parallel(manifest_id, entries)
+        log.info(f"import_id={import_id} initialized import with {len(import_files)} files for upload")
 
-        log.info(f"Import complete. Manifest ID: {manifest_id}")
-        return manifest_id
+        # Upload all files
+        self._upload_files(import_id, dataset_id, import_files)
+
+        log.info(f"import_id={import_id} import complete")
+        return import_id
+
+    def _upload_files(self, import_id: str, dataset_id: str, import_files) -> None:
+        """
+        Upload files to S3 using presigned URLs.
+
+        Args:
+            import_id: Import manifest ID
+            dataset_id: Dataset ID
+            import_files: List of ImportFile objects
+        """
+        total = len(import_files)
+        completed = [0]  # Use list to allow modification in nested function
+
+        @backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
+        def upload_file(import_file):
+            upload_url = self.import_client.get_presign_url(import_id, dataset_id, import_file.upload_key)
+            with open(import_file.local_path, "rb") as f:
+                response = requests.put(upload_url, data=f)
+                response.raise_for_status()
+
+            completed[0] += 1
+            if completed[0] % 100 == 0 or completed[0] == total:
+                log.info(f"import_id={import_id} upload progress: {completed[0]}/{total}")
+            return True
+
+        log.info(f"import_id={import_id} starting upload of {total} files")
+
+        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+            results = list(executor.map(upload_file, import_files))
+
+        assert sum(results) == total, "Failed to upload all files"
+        log.info(f"import_id={import_id} uploaded {total} files")
