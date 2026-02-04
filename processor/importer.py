@@ -14,9 +14,6 @@ from processor.config import Config
 
 log = logging.getLogger(__name__)
 
-# Number of parallel upload threads
-UPLOAD_WORKERS = 4
-
 
 class OmeZarrImporter:
     """Handles importing OME-Zarr files to Pennsieve."""
@@ -133,12 +130,13 @@ class OmeZarrImporter:
             except Exception as e:
                 with failed_lock:
                     failed_uploads.append((import_file.local_path, e))
-                log.error(f"import_id={import_id} failed to upload {import_file.local_path}: {e}")
+                log.error(f"import_id={import_id} failed to upload {import_file.local_path}: {e}", exc_info=True)
                 raise
 
         log.info(f"import_id={import_id} starting upload of {total} files")
 
-        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+        upload_workers = self.config.UPLOAD_WORKERS
+        with ThreadPoolExecutor(max_workers=upload_workers) as executor:
             futures = {executor.submit(upload_file, f): f for f in import_files}
             for future in as_completed(futures):
                 try:

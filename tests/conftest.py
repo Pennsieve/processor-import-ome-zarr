@@ -35,6 +35,7 @@ def mock_config():
     config.WORKFLOW_INSTANCE_ID = "mock-workflow-instance-id"
     config.IMPORTER_ENABLED = True
     config.ASSET_TYPE = "ome-zarr"
+    config.UPLOAD_WORKERS = 4
     return config
 
 

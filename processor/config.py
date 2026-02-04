@@ -32,3 +32,6 @@ class Config:
 
         # Viewer asset configuration
         self.ASSET_TYPE = os.getenv("ASSET_TYPE", "ome-zarr")
+
+        # Upload parallelism
+        self.UPLOAD_WORKERS = int(os.getenv("UPLOAD_WORKERS", "4"))
