@@ -43,33 +43,57 @@ class TestOmeZarrExtractor:
         with pytest.raises(ValueError, match="Expected exactly one ZIP file"):
             extractor.find_input_file()
 
-    def test_get_zarr_name(self, tmp_path):
-        """Should return the basename of the zarr directory."""
+    def test_get_zarr_name_from_zip(self, tmp_path):
+        """Should derive zarr name from zip filename."""
         extractor = OmeZarrExtractor(str(tmp_path), str(tmp_path))
 
-        assert extractor.get_zarr_name("/path/to/sample.zarr") == "sample.zarr"
-        assert extractor.get_zarr_name("/data/output/my-data.ome.zarr") == "my-data.ome.zarr"
+        assert extractor.get_zarr_name_from_zip("/path/to/sample.zarr.zip") == "sample.zarr"
+        assert extractor.get_zarr_name_from_zip("/data/input/my-data.ome.zarr.zip") == "my-data.ome.zarr"
+        assert extractor.get_zarr_name_from_zip("simple.zip") == "simple"
 
-    def test_extract_valid_zarr(self, tmp_path):
-        """Should extract ZIP and find OME-Zarr root."""
+    def test_extract_valid_zarr_with_folder(self, tmp_path):
+        """Should extract ZIP with container folder and find OME-Zarr root."""
         input_dir = tmp_path / "input"
         output_dir = tmp_path / "output"
         input_dir.mkdir()
         output_dir.mkdir()
 
-        # Create a ZIP with OME-Zarr structure
-        zip_path = input_dir / "data.zip"
+        # Create a ZIP with OME-Zarr structure inside a folder
+        zip_path = input_dir / "data.zarr.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("sample.zarr/.zattrs", '{"multiscales": []}')
             zf.writestr("sample.zarr/.zgroup", '{"zarr_format": 2}')
             zf.writestr("sample.zarr/0/.zarray", "{}")
 
         extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
-        result = extractor.extract(str(zip_path))
+        zarr_root, zarr_name = extractor.extract(str(zip_path))
 
-        assert result.endswith("sample.zarr")
-        assert os.path.exists(result)
-        assert os.path.exists(os.path.join(result, ".zattrs"))
+        assert zarr_root.endswith("sample.zarr")
+        assert zarr_name == "sample.zarr"
+        assert os.path.exists(zarr_root)
+        assert os.path.exists(os.path.join(zarr_root, ".zattrs"))
+
+    def test_extract_valid_zarr_direct(self, tmp_path):
+        """Should extract ZIP without container folder and use zip filename as zarr name."""
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # Create a ZIP with OME-Zarr files directly (no container folder)
+        zip_path = input_dir / "my-data.zarr.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr(".zattrs", '{"multiscales": []}')
+            zf.writestr(".zgroup", '{"zarr_format": 2}')
+            zf.writestr("0/.zarray", "{}")
+
+        extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
+        zarr_root, zarr_name = extractor.extract(str(zip_path))
+
+        # zarr_root is the extraction dir, zarr_name comes from zip filename
+        assert zarr_root.endswith("extracted")
+        assert zarr_name == "my-data.zarr"
+        assert os.path.exists(os.path.join(zarr_root, ".zattrs"))
 
     def test_extract_no_zarr_found(self, tmp_path):
         """Should raise ValueError when ZIP contains no zarr directory."""

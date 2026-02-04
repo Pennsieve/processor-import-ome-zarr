@@ -2,37 +2,71 @@ import os
 import zipfile
 
 
-def find_zarr_root(extracted_dir: str) -> str | None:
+def find_zarr_root(extracted_dir: str, expected_name: str | None = None) -> str | None:
     """
     Find the root OME-Zarr directory within an extracted archive.
 
-    OME-Zarr directories are identified by the presence of a .zattrs file
-    at the root level containing OME metadata.
+    OME-Zarr directories are identified by the presence of zarr metadata files
+    (.zattrs, .zgroup, or .zarray) at the root level. We prioritize finding
+    directories with .zgroup (indicating a zarr group/hierarchy) over .zarray
+    (which could be a sub-array like a resolution level).
 
     Args:
         extracted_dir: Path to the directory containing extracted files
+        expected_name: Optional expected zarr directory name (e.g., from zip filename)
 
     Returns:
         Path to the OME-Zarr root directory, or None if not found
     """
-    # Check if extracted_dir itself is a zarr directory
-    if is_zarr_directory(extracted_dir):
+    # Check if extracted_dir itself is a zarr root (has .zgroup or .zattrs)
+    if _is_zarr_root(extracted_dir):
         return extracted_dir
 
-    # Check immediate children
+    # If we have an expected name, check for it first
+    if expected_name:
+        expected_path = os.path.join(extracted_dir, expected_name)
+        if os.path.isdir(expected_path) and _is_zarr_root(expected_path):
+            return expected_path
+
+    # Check immediate children for zarr roots
     for entry in os.listdir(extracted_dir):
         entry_path = os.path.join(extracted_dir, entry)
-        if os.path.isdir(entry_path) and is_zarr_directory(entry_path):
+        if os.path.isdir(entry_path) and _is_zarr_root(entry_path):
             return entry_path
 
     return None
+
+
+def _is_zarr_root(path: str) -> bool:
+    """
+    Check if a directory is a zarr root (group with .zgroup or .zattrs).
+
+    This is more specific than is_zarr_directory - it requires .zgroup or .zattrs,
+    not just .zarray, to avoid matching resolution level sub-arrays.
+
+    Args:
+        path: Path to check
+
+    Returns:
+        True if the path is a zarr root directory
+    """
+    if not os.path.isdir(path):
+        return False
+
+    zattrs_path = os.path.join(path, ".zattrs")
+    zgroup_path = os.path.join(path, ".zgroup")
+
+    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path)
 
 
 def is_zarr_directory(path: str) -> bool:
     """
     Check if a directory is a valid Zarr directory.
 
-    A Zarr directory must contain either .zarray or .zgroup file at its root.
+    A Zarr directory must contain .zattrs, .zgroup, or .zarray file at its root.
+    - .zgroup: indicates a zarr group (hierarchical container)
+    - .zarray: indicates a zarr array (data container)
+    - .zattrs: indicates zarr attributes (often present with OME metadata)
 
     Args:
         path: Path to check
@@ -45,8 +79,9 @@ def is_zarr_directory(path: str) -> bool:
 
     zattrs_path = os.path.join(path, ".zattrs")
     zgroup_path = os.path.join(path, ".zgroup")
+    zarray_path = os.path.join(path, ".zarray")
 
-    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path)
+    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path) or os.path.exists(zarray_path)
 
 
 def extract_zip(zip_path: str, output_dir: str) -> str:

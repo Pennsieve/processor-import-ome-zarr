@@ -1,7 +1,13 @@
 import os
 import zipfile
 
-from processor.utils import collect_files, extract_zip, find_zarr_root, is_zarr_directory
+from processor.utils import (
+    _is_zarr_root,
+    collect_files,
+    extract_zip,
+    find_zarr_root,
+    is_zarr_directory,
+)
 
 
 class TestIsZarrDirectory:
@@ -33,6 +39,13 @@ class TestIsZarrDirectory:
         (zarr_dir / ".zgroup").write_text("{}")
         assert is_zarr_directory(str(zarr_dir)) is True
 
+    def test_returns_true_for_directory_with_zarray(self, tmp_path):
+        """Should return True for directory with .zarray file."""
+        zarr_dir = tmp_path / "data.zarr"
+        zarr_dir.mkdir()
+        (zarr_dir / ".zarray").write_text("{}")
+        assert is_zarr_directory(str(zarr_dir)) is True
+
 
 class TestFindZarrRoot:
     """Tests for find_zarr_root function."""
@@ -52,6 +65,52 @@ class TestFindZarrRoot:
         """Should return the directory itself if it is a zarr directory."""
         result = find_zarr_root(str(temp_zarr_directory))
         assert result == str(temp_zarr_directory)
+
+    def test_finds_expected_name_first(self, tmp_path):
+        """Should find zarr directory matching expected name."""
+        # Create two zarr directories
+        zarr1 = tmp_path / "other.zarr"
+        zarr1.mkdir()
+        (zarr1 / ".zgroup").write_text("{}")
+
+        zarr2 = tmp_path / "expected.zarr"
+        zarr2.mkdir()
+        (zarr2 / ".zgroup").write_text("{}")
+
+        result = find_zarr_root(str(tmp_path), expected_name="expected.zarr")
+        assert result == str(zarr2)
+
+    def test_prefers_zarr_root_over_subarray(self, tmp_path):
+        """Should find zarr root (.zgroup) over sub-array (.zarray only)."""
+        # Create a structure like extracted zarr: root has .zgroup, subdirs have .zarray
+        (tmp_path / ".zgroup").write_text("{}")
+        (tmp_path / ".zattrs").write_text("{}")
+
+        subdir = tmp_path / "0"
+        subdir.mkdir()
+        (subdir / ".zarray").write_text("{}")
+
+        result = find_zarr_root(str(tmp_path))
+        assert result == str(tmp_path)
+
+
+class TestIsZarrRoot:
+    """Tests for _is_zarr_root function (stricter than is_zarr_directory)."""
+
+    def test_returns_true_for_zgroup(self, tmp_path):
+        """Should return True for directory with .zgroup."""
+        (tmp_path / ".zgroup").write_text("{}")
+        assert _is_zarr_root(str(tmp_path)) is True
+
+    def test_returns_true_for_zattrs(self, tmp_path):
+        """Should return True for directory with .zattrs."""
+        (tmp_path / ".zattrs").write_text("{}")
+        assert _is_zarr_root(str(tmp_path)) is True
+
+    def test_returns_false_for_zarray_only(self, tmp_path):
+        """Should return False for directory with only .zarray (sub-array, not root)."""
+        (tmp_path / ".zarray").write_text("{}")
+        assert _is_zarr_root(str(tmp_path)) is False
 
 
 class TestExtractZip:
