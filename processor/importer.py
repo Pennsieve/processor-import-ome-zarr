@@ -78,7 +78,6 @@ class OmeZarrImporter:
             "asset_type": self.config.ASSET_TYPE,
             "asset_name": zarr_name,
             "properties": {},
-            "provenance_id": integration_id,
         }
 
         # Create import manifest with batching

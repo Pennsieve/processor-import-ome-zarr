@@ -99,7 +99,6 @@ class TestOmeZarrImporter:
         assert call_kwargs["dataset_id"] == "dataset-123"
         assert call_kwargs["options"]["asset_type"] == mock_config.ASSET_TYPE
         assert call_kwargs["options"]["asset_name"] == "sample.zarr"
-        assert call_kwargs["options"]["provenance_id"] == mock_config.INTEGRATION_ID
 
         # Verify file was uploaded
         mock_import_client.get_presign_url.assert_called_once_with("import-123", "dataset-123", "upload-key-1")
