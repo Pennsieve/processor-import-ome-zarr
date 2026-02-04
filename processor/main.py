@@ -6,7 +6,7 @@ from extractor import OmeZarrExtractor
 from importer import OmeZarrImporter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 
 def main():
@@ -22,7 +22,7 @@ def main():
 
     # Extract and process the OME-Zarr archive
     extractor = OmeZarrExtractor(config.INPUT_DIR, config.OUTPUT_DIR)
-    zarr_root, zarr_name, files = extractor.process()
+    _, zarr_name, files = extractor.process()
 
     log.info(f"Processed OME-Zarr: {zarr_name} with {len(files)} files")
 

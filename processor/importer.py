@@ -1,13 +1,13 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Lock, Value
 
 import backoff
 import requests
-from clients import AuthenticationClient, ImportClient, SessionManager, WorkflowClient, prepare_import_files
+from clients import AuthenticationClient, ImportClient, ImportFile, SessionManager, WorkflowClient, prepare_import_files
 from config import Config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 # Number of parallel upload threads
 UPLOAD_WORKERS = 4
@@ -97,7 +97,7 @@ class OmeZarrImporter:
         log.info(f"import_id={import_id} import complete")
         return import_id
 
-    def _upload_files(self, import_id: str, dataset_id: str, import_files) -> None:
+    def _upload_files(self, import_id: str, dataset_id: str, import_files: list[ImportFile]) -> None:
         """
         Upload files to S3 using presigned URLs.
 
@@ -107,19 +107,28 @@ class OmeZarrImporter:
             import_files: List of ImportFile objects
         """
         total = len(import_files)
-        completed = [0]  # Use list to allow modification in nested function
+        upload_counter = Value("i", 0)
+        upload_counter_lock = Lock()
 
         @backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
         def upload_file(import_file):
-            upload_url = self.import_client.get_presign_url(import_id, dataset_id, import_file.upload_key)
-            with open(import_file.local_path, "rb") as f:
-                response = requests.put(upload_url, data=f)
-                response.raise_for_status()
+            try:
+                with upload_counter_lock:
+                    upload_counter.value += 1
+                    current = upload_counter.value
+                    if current % 100 == 0 or current == total:
+                        log.info(f"import_id={import_id} uploading {current}/{total}")
 
-            completed[0] += 1
-            if completed[0] % 100 == 0 or completed[0] == total:
-                log.info(f"import_id={import_id} upload progress: {completed[0]}/{total}")
-            return True
+                upload_url = self.import_client.get_presign_url(import_id, dataset_id, import_file.upload_key)
+                with open(import_file.local_path, "rb") as f:
+                    response = requests.put(upload_url, data=f)
+                    response.raise_for_status()
+                return True
+            except Exception as e:
+                with upload_counter_lock:
+                    upload_counter.value -= 1
+                log.error(f"import_id={import_id} failed to upload {import_file.local_path}: {e}")
+                raise
 
         log.info(f"import_id={import_id} starting upload of {total} files")
 

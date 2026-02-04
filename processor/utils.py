@@ -84,22 +84,3 @@ def collect_files(directory: str) -> list[tuple[str, str]]:
             files.append((abs_path, rel_path))
 
     return files
-
-
-def get_file_extension(filename: str) -> str:
-    """
-    Get the file extension, handling compound extensions like .bin.gz.
-
-    Args:
-        filename: Name of the file
-
-    Returns:
-        File extension including the leading dot
-    """
-    basename = os.path.basename(filename)
-    # Handle compound extensions
-    if basename.endswith(".bin.gz"):
-        return ".bin.gz"
-
-    _, ext = os.path.splitext(basename)
-    return ext

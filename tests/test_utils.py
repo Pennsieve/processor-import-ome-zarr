@@ -1,7 +1,7 @@
 import os
 import zipfile
 
-from utils import collect_files, extract_zip, find_zarr_root, get_file_extension, is_zarr_directory
+from utils import collect_files, extract_zip, find_zarr_root, is_zarr_directory
 
 
 class TestIsZarrDirectory:
@@ -98,26 +98,3 @@ class TestCollectFiles:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
         assert collect_files(str(empty_dir)) == []
-
-
-class TestGetFileExtension:
-    """Tests for get_file_extension function."""
-
-    def test_simple_extension(self):
-        """Should return simple file extension."""
-        assert get_file_extension("file.txt") == ".txt"
-        assert get_file_extension("data.json") == ".json"
-
-    def test_compound_extension(self):
-        """Should handle compound extensions like .bin.gz."""
-        assert get_file_extension("data.bin.gz") == ".bin.gz"
-
-    def test_no_extension(self):
-        """Should return empty string for files without extension."""
-        assert get_file_extension("filename") == ""
-        assert get_file_extension("0") == ""
-
-    def test_hidden_files(self):
-        """Should handle hidden files correctly (no extension, just filename)."""
-        assert get_file_extension(".zattrs") == ""
-        assert get_file_extension(".zgroup") == ""

@@ -3,8 +3,7 @@ import os
 
 from utils import collect_files, extract_zip, find_zarr_root
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 
 class OmeZarrExtractor:
