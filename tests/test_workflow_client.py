@@ -1,5 +1,6 @@
 import responses
-from clients.workflow_client import WorkflowClient, WorkflowInstance
+
+from processor.clients.workflow_client import WorkflowClient, WorkflowInstance
 
 
 class TestWorkflowInstance:

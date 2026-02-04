@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch
 
-from config import Config, getboolenv
+from processor.config import Config, getboolenv
 
 
 class TestGetBoolEnv:
@@ -46,7 +46,7 @@ class TestConfig:
             "OUTPUT_DIR": "/custom/output",
             "PENNSIEVE_API_KEY": "test-key",
             "PENNSIEVE_API_SECRET": "test-secret",
-            "INTEGRATION_ID": "test-integration",
+            "INTEGRATION_ID": "test-workflow-instance",
             "ASSET_TYPE": "custom-type",
         }
         with patch.dict(os.environ, env, clear=True):
@@ -56,7 +56,7 @@ class TestConfig:
             assert config.OUTPUT_DIR == "/custom/output"
             assert config.PENNSIEVE_API_KEY == "test-key"
             assert config.PENNSIEVE_API_SECRET == "test-secret"
-            assert config.INTEGRATION_ID == "test-integration"
+            assert config.WORKFLOW_INSTANCE_ID == "test-workflow-instance"
             assert config.ASSET_TYPE == "custom-type"
 
     def test_importer_enabled_default_local(self):

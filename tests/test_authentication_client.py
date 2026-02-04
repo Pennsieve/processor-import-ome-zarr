@@ -3,7 +3,8 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 import responses
-from clients.authentication_client import AuthenticationClient
+
+from processor.clients.authentication_client import AuthenticationClient
 
 
 class TestAuthenticationClient:
@@ -28,7 +29,7 @@ class TestAuthenticationClient:
             status=200,
         )
 
-        with patch("clients.authentication_client.boto3") as mock_boto3:
+        with patch("processor.clients.authentication_client.boto3") as mock_boto3:
             mock_cognito = Mock()
             mock_boto3.client.return_value = mock_cognito
             mock_cognito.initiate_auth.return_value = {"AuthenticationResult": {"AccessToken": "test-access-token"}}
@@ -83,7 +84,7 @@ class TestAuthenticationClient:
             status=200,
         )
 
-        with patch("clients.authentication_client.boto3") as mock_boto3:
+        with patch("processor.clients.authentication_client.boto3") as mock_boto3:
             mock_cognito = Mock()
             mock_boto3.client.return_value = mock_cognito
             mock_cognito.initiate_auth.side_effect = Exception("Invalid credentials")

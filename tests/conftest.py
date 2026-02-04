@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-# Add processor to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "processor"))
+# Add project root to path for package imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def mock_config():
     config.PENNSIEVE_API_HOST2 = "https://api2.pennsieve.net"
     config.PENNSIEVE_API_KEY = "mock-api-key"
     config.PENNSIEVE_API_SECRET = "mock-api-secret"
-    config.INTEGRATION_ID = "mock-integration-id"
+    config.WORKFLOW_INSTANCE_ID = "mock-workflow-instance-id"
     config.IMPORTER_ENABLED = True
     config.ASSET_TYPE = "ome-zarr"
     return config

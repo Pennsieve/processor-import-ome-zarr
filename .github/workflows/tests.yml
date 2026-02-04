@@ -56,4 +56,3 @@ jobs:
       - name: Run linter
         run: |
           ruff check processor/ tests/ --output-format=github
-        continue-on-error: true

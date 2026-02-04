@@ -1,12 +1,14 @@
 import json
 import logging
 import math
-import os
+import posixpath
 import uuid
+from dataclasses import dataclass
 
 import backoff
 import requests
-from clients.base_client import BaseClient, SessionManager
+
+from .base_client import DEFAULT_TIMEOUT, BaseClient, SessionManager
 
 log = logging.getLogger()
 
@@ -14,14 +16,13 @@ MAX_REQUEST_SIZE_BYTES = 1 * 1024 * 1024  # Stay under AWS API Gateway payload l
 DEFAULT_BATCH_SIZE = 1000
 
 
+@dataclass(frozen=True, slots=True)
 class ImportFile:
-    def __init__(self, upload_key, file_path, local_path):
-        self.upload_key = upload_key
-        self.file_path = file_path
-        self.local_path = local_path
+    """Represents a file to be imported with upload metadata."""
 
-    def __repr__(self):
-        return f"ImportFile(upload_key={self.upload_key}, file_path={self.file_path}, local_path={self.local_path})"
+    upload_key: uuid.UUID
+    file_path: str
+    local_path: str
 
 
 class ImportClient(BaseClient):
@@ -61,7 +62,7 @@ class ImportClient(BaseClient):
         }
 
         try:
-            response = requests.post(url, headers=self._get_headers(), json=body)
+            response = requests.post(url, headers=self._get_headers(), json=body, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             return data["id"]
@@ -90,7 +91,7 @@ class ImportClient(BaseClient):
         body = {"files": [{"upload_key": str(f.upload_key), "file_path": f.file_path} for f in import_files]}
 
         try:
-            response = requests.post(url, headers=self._get_headers(), json=body)
+            response = requests.post(url, headers=self._get_headers(), json=body, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             return response.json()
         except requests.HTTPError as e:
@@ -155,7 +156,7 @@ class ImportClient(BaseClient):
         url = f"{self.base_url}/{import_id}/upload/{upload_key}/presign?dataset_id={dataset_id}"
 
         try:
-            response = requests.get(url, headers=self._get_headers())
+            response = requests.get(url, headers=self._get_headers(), timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             return data["url"]
@@ -175,8 +176,10 @@ class ImportClient(BaseClient):
             presigned_url: Presigned S3 URL for PUT
             file_path: Local path to the file to upload
         """
+        # Use a longer timeout for uploads (60s read timeout for potentially large files)
+        upload_timeout = (10, 60)
         with open(file_path, "rb") as f:
-            response = requests.put(presigned_url, data=f)
+            response = requests.put(presigned_url, data=f, timeout=upload_timeout)
             response.raise_for_status()
 
 
@@ -194,7 +197,10 @@ def prepare_import_files(files: list[tuple[str, str]], zarr_name: str) -> list[I
     import_files = []
     for abs_path, rel_path in files:
         # file_path includes the zarr_name prefix so files are grouped under it
-        file_path = os.path.join(zarr_name, rel_path)
+        # Use posixpath.join to ensure forward slashes for API/S3 object keys
+        # (rel_path may contain OS-specific separators on Windows)
+        normalized_rel_path = rel_path.replace("\\", "/")
+        file_path = posixpath.join(zarr_name, normalized_rel_path)
         import_file = ImportFile(
             upload_key=uuid.uuid4(),
             file_path=file_path,
@@ -218,17 +224,22 @@ def calculate_batch_size(sample_files: list[ImportFile], max_size_bytes: int = M
     if not sample_files:
         return DEFAULT_BATCH_SIZE
 
-    # Calculate actual size of a sample file entry
+    # Calculate actual size of a sample file entry using compact JSON encoding
     sample_size = 0
     sample_count = min(100, len(sample_files))
     for f in sample_files[:sample_count]:
         entry = {"upload_key": str(f.upload_key), "file_path": f.file_path}
-        sample_size += len(json.dumps(entry)) + 1  # +1 for comma separator
+        # Use compact separators to match typical wire format
+        sample_size += len(json.dumps(entry, separators=(",", ":"))) + 1  # +1 for comma separator
 
     avg_bytes_per_file = sample_size / sample_count
 
-    # Calculate batch size with safety margin (80% of limit)
-    usable_size = max_size_bytes * 0.8
+    # Estimate fixed overhead for request body structure (integration_id, import_type, options, JSON punctuation)
+    # Approximate: {"integration_id":"uuid","import_type":"viewerassets","files":[],"options":{...}}
+    fixed_overhead_estimate = 500  # Conservative estimate for typical request
+
+    # Calculate batch size with safety margin (80% of limit after fixed overhead)
+    usable_size = (max_size_bytes - fixed_overhead_estimate) * 0.8
     batch_size = int(usable_size / avg_bytes_per_file)
 
     # Ensure at least 1 file per batch

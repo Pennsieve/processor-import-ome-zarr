@@ -2,7 +2,8 @@ import os
 import zipfile
 
 import pytest
-from extractor import OmeZarrExtractor
+
+from processor.extractor import OmeZarrExtractor
 
 
 class TestOmeZarrExtractor:
@@ -20,18 +21,18 @@ class TestOmeZarrExtractor:
         assert result == str(input_dir / "data.zip")
 
     def test_find_input_file_no_zip(self, tmp_path):
-        """Should raise assertion error when no ZIP file exists."""
+        """Should raise FileNotFoundError when no ZIP file exists."""
         input_dir = tmp_path / "input"
         input_dir.mkdir()
         (input_dir / "data.txt").write_text("not a zip")
 
         extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
 
-        with pytest.raises(AssertionError, match="Expected exactly one ZIP file"):
+        with pytest.raises(FileNotFoundError, match="Expected exactly one ZIP file"):
             extractor.find_input_file()
 
     def test_find_input_file_multiple_zips(self, tmp_path):
-        """Should raise assertion error when multiple ZIP files exist."""
+        """Should raise ValueError when multiple ZIP files exist."""
         input_dir = tmp_path / "input"
         input_dir.mkdir()
         (input_dir / "data1.zip").write_bytes(b"fake zip")
@@ -39,7 +40,7 @@ class TestOmeZarrExtractor:
 
         extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
 
-        with pytest.raises(AssertionError, match="Expected exactly one ZIP file"):
+        with pytest.raises(ValueError, match="Expected exactly one ZIP file"):
             extractor.find_input_file()
 
     def test_get_zarr_name(self, tmp_path):
@@ -71,7 +72,7 @@ class TestOmeZarrExtractor:
         assert os.path.exists(os.path.join(result, ".zattrs"))
 
     def test_extract_no_zarr_found(self, tmp_path):
-        """Should raise assertion error when ZIP contains no zarr directory."""
+        """Should raise ValueError when ZIP contains no zarr directory."""
         input_dir = tmp_path / "input"
         output_dir = tmp_path / "output"
         input_dir.mkdir()
@@ -84,7 +85,7 @@ class TestOmeZarrExtractor:
 
         extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
 
-        with pytest.raises(AssertionError, match="No valid OME-Zarr directory"):
+        with pytest.raises(ValueError, match="No valid OME-Zarr directory"):
             extractor.extract(str(zip_path))
 
     def test_collect_zarr_files(self, temp_zarr_directory):

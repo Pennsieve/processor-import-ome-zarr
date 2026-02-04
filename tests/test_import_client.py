@@ -1,7 +1,8 @@
 import uuid
 
 import responses
-from clients.import_client import (
+
+from processor.clients.import_client import (
     DEFAULT_BATCH_SIZE,
     ImportClient,
     ImportFile,

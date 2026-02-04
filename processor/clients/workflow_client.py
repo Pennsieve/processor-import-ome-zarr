@@ -1,17 +1,21 @@
 import json
 import logging
+from dataclasses import dataclass
 
 import requests
-from clients.base_client import BaseClient, SessionManager
+
+from .base_client import DEFAULT_TIMEOUT, BaseClient, SessionManager
 
 log = logging.getLogger()
 
 
+@dataclass(frozen=True, slots=True)
 class WorkflowInstance:
-    def __init__(self, id, dataset_id, package_ids):
-        self.id = id
-        self.dataset_id = dataset_id
-        self.package_ids = package_ids
+    """Represents a workflow instance with its metadata."""
+
+    id: str
+    dataset_id: str
+    package_ids: list[str]
 
 
 class WorkflowClient(BaseClient):
@@ -41,7 +45,7 @@ class WorkflowClient(BaseClient):
         url = f"{self.base_url}/instances/{workflow_instance_id}"
 
         try:
-            response = requests.get(url, headers=self._get_headers())
+            response = requests.get(url, headers=self._get_headers(), timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             data = response.json()
 

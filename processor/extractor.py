@@ -1,7 +1,7 @@
 import logging
 import os
 
-from utils import collect_files, extract_zip, find_zarr_root
+from processor.utils import collect_files, extract_zip, find_zarr_root
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +28,14 @@ class OmeZarrExtractor:
             Path to the ZIP file
 
         Raises:
-            AssertionError: If not exactly one ZIP file is found
+            FileNotFoundError: If no ZIP file is found
+            ValueError: If multiple ZIP files are found
         """
         zip_files = [f for f in os.listdir(self.input_dir) if f.endswith(".zip")]
-        assert len(zip_files) == 1, f"Expected exactly one ZIP file, found {len(zip_files)}"
+        if len(zip_files) == 0:
+            raise FileNotFoundError("Expected exactly one ZIP file, found 0")
+        if len(zip_files) > 1:
+            raise ValueError(f"Expected exactly one ZIP file, found {len(zip_files)}")
         return os.path.join(self.input_dir, zip_files[0])
 
     def extract(self, zip_path: str) -> str:
@@ -56,7 +60,8 @@ class OmeZarrExtractor:
 
         # Find the OME-Zarr root
         zarr_root = find_zarr_root(extraction_dir)
-        assert zarr_root is not None, "No valid OME-Zarr directory found in archive"
+        if zarr_root is None:
+            raise ValueError("No valid OME-Zarr directory found in archive")
 
         log.info(f"Found OME-Zarr root: {zarr_root}")
         return zarr_root

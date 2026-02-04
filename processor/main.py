@@ -1,9 +1,9 @@
 import logging
 import sys
 
-from config import Config
-from extractor import OmeZarrExtractor
-from importer import OmeZarrImporter
+from processor.config import Config
+from processor.extractor import OmeZarrExtractor
+from processor.importer import OmeZarrImporter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
@@ -17,8 +17,10 @@ def main():
     config = Config()
 
     # Validate required configuration
-    assert config.INPUT_DIR, "INPUT_DIR environment variable is required"
-    assert config.OUTPUT_DIR, "OUTPUT_DIR environment variable is required"
+    if not config.INPUT_DIR:
+        raise ValueError("INPUT_DIR environment variable is required")
+    if not config.OUTPUT_DIR:
+        raise ValueError("OUTPUT_DIR environment variable is required")
 
     # Extract and process the OME-Zarr archive
     extractor = OmeZarrExtractor(config.INPUT_DIR, config.OUTPUT_DIR)
@@ -28,9 +30,12 @@ def main():
 
     # Import to Pennsieve if enabled
     if config.IMPORTER_ENABLED:
-        assert config.INTEGRATION_ID, "INTEGRATION_ID is required when importer is enabled"
-        assert config.PENNSIEVE_API_KEY, "PENNSIEVE_API_KEY is required when importer is enabled"
-        assert config.PENNSIEVE_API_SECRET, "PENNSIEVE_API_SECRET is required when importer is enabled"
+        if not config.WORKFLOW_INSTANCE_ID:
+            raise ValueError("INTEGRATION_ID is required when importer is enabled")
+        if not config.PENNSIEVE_API_KEY:
+            raise ValueError("PENNSIEVE_API_KEY is required when importer is enabled")
+        if not config.PENNSIEVE_API_SECRET:
+            raise ValueError("PENNSIEVE_API_SECRET is required when importer is enabled")
 
         importer = OmeZarrImporter(config)
         try:

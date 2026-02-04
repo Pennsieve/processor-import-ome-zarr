@@ -3,7 +3,8 @@ import logging
 
 import boto3
 import requests
-from clients.base_client import SessionManager
+
+from .base_client import DEFAULT_TIMEOUT, SessionManager
 
 log = logging.getLogger()
 
@@ -40,7 +41,7 @@ class AuthenticationClient:
         try:
             # Fetch Cognito configuration from API
             url = f"{self.session_manager.api_host}/authentication/cognito-config"
-            response = requests.get(url)
+            response = requests.get(url, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             data = json.loads(response.content)
 

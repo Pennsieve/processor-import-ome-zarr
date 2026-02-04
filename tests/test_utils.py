@@ -1,7 +1,7 @@
 import os
 import zipfile
 
-from utils import collect_files, extract_zip, find_zarr_root, is_zarr_directory
+from processor.utils import collect_files, extract_zip, find_zarr_root, is_zarr_directory
 
 
 class TestIsZarrDirectory:

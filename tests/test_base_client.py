@@ -2,7 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 import requests
-from clients.base_client import BaseClient, SessionManager
+
+from processor.clients.base_client import BaseClient, SessionManager
 
 
 class TestSessionManager:

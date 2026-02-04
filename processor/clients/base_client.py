@@ -5,6 +5,9 @@ import requests
 
 log = logging.getLogger()
 
+# Default timeout for HTTP requests (connect, read) in seconds
+DEFAULT_TIMEOUT = (10, 30)
+
 
 class SessionManager:
     """Manages API session and authentication tokens."""
