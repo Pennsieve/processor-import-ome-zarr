@@ -1,12 +1,16 @@
 import os
+import tarfile
 import zipfile
 
 from processor.utils import (
     _is_zarr_root,
     collect_files,
+    extract_tar,
     extract_zip,
     find_zarr_root,
+    get_archive_type,
     is_zarr_directory,
+    strip_archive_extension,
 )
 
 
@@ -143,3 +147,165 @@ class TestCollectFiles:
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
         assert collect_files(str(empty_dir)) == []
+
+
+class TestGetArchiveType:
+    """Tests for get_archive_type function."""
+
+    def test_returns_zip_for_zip_file(self):
+        """Should return .zip for ZIP files."""
+        assert get_archive_type("data.zip") == ".zip"
+        assert get_archive_type("data.zarr.zip") == ".zip"
+
+    def test_returns_tar_gz_for_gzipped_tarball(self):
+        """Should return .tar.gz for gzipped tarballs."""
+        assert get_archive_type("data.tar.gz") == ".tar.gz"
+        assert get_archive_type("data.zarr.tar.gz") == ".tar.gz"
+
+    def test_returns_tgz_for_tgz_extension(self):
+        """Should return .tgz for .tgz files."""
+        assert get_archive_type("data.tgz") == ".tgz"
+
+    def test_returns_tar_bz2_for_bzip2_tarball(self):
+        """Should return .tar.bz2 for bzip2 tarballs."""
+        assert get_archive_type("data.tar.bz2") == ".tar.bz2"
+        assert get_archive_type("data.tbz2") == ".tbz2"
+
+    def test_returns_tar_xz_for_xz_tarball(self):
+        """Should return .tar.xz for xz tarballs."""
+        assert get_archive_type("data.tar.xz") == ".tar.xz"
+        assert get_archive_type("data.txz") == ".txz"
+
+    def test_returns_tar_for_plain_tarball(self):
+        """Should return .tar for uncompressed tarballs."""
+        assert get_archive_type("data.tar") == ".tar"
+
+    def test_returns_none_for_unsupported(self):
+        """Should return None for unsupported file types."""
+        assert get_archive_type("data.txt") is None
+        assert get_archive_type("data.rar") is None
+        assert get_archive_type("data.7z") is None
+
+    def test_case_insensitive(self):
+        """Should match extensions case-insensitively."""
+        assert get_archive_type("data.ZIP") == ".zip"
+        assert get_archive_type("data.TAR.GZ") == ".tar.gz"
+        assert get_archive_type("data.TGZ") == ".tgz"
+
+
+class TestStripArchiveExtension:
+    """Tests for strip_archive_extension function."""
+
+    def test_strips_zip_extension(self):
+        """Should strip .zip extension."""
+        assert strip_archive_extension("data.zarr.zip") == "data.zarr"
+        assert strip_archive_extension("sample.zip") == "sample"
+
+    def test_strips_tar_gz_extension(self):
+        """Should strip .tar.gz extension."""
+        assert strip_archive_extension("data.zarr.tar.gz") == "data.zarr"
+
+    def test_strips_tgz_extension(self):
+        """Should strip .tgz extension."""
+        assert strip_archive_extension("data.zarr.tgz") == "data.zarr"
+
+    def test_strips_tar_bz2_extension(self):
+        """Should strip .tar.bz2 extension."""
+        assert strip_archive_extension("data.zarr.tar.bz2") == "data.zarr"
+
+    def test_strips_tbz2_extension(self):
+        """Should strip .tbz2 extension."""
+        assert strip_archive_extension("data.zarr.tbz2") == "data.zarr"
+
+    def test_strips_tar_xz_extension(self):
+        """Should strip .tar.xz extension."""
+        assert strip_archive_extension("data.zarr.tar.xz") == "data.zarr"
+
+    def test_strips_txz_extension(self):
+        """Should strip .txz extension."""
+        assert strip_archive_extension("data.zarr.txz") == "data.zarr"
+
+    def test_strips_plain_tar_extension(self):
+        """Should strip .tar extension."""
+        assert strip_archive_extension("data.zarr.tar") == "data.zarr"
+
+    def test_returns_filename_if_no_extension(self):
+        """Should return filename unchanged if no archive extension."""
+        assert strip_archive_extension("data.zarr") == "data.zarr"
+        assert strip_archive_extension("data.txt") == "data.txt"
+
+    def test_case_insensitive(self):
+        """Should match extensions case-insensitively but preserve base name case."""
+        assert strip_archive_extension("Data.Zarr.ZIP") == "Data.Zarr"
+        assert strip_archive_extension("Data.Zarr.TAR.GZ") == "Data.Zarr"
+
+
+class TestExtractTar:
+    """Tests for extract_tar function."""
+
+    def test_extracts_tar_gz_contents(self, tmp_path):
+        """Should extract all files from a gzipped tar archive."""
+        tar_path = tmp_path / "test.tar.gz"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Create a tar.gz file
+        with tarfile.open(tar_path, "w:gz") as tf:
+            # Add a file
+            file1 = tmp_path / "file1.txt"
+            file1.write_text("content1")
+            tf.add(file1, arcname="file1.txt")
+
+            # Add a file in a subdirectory
+            subdir = tmp_path / "subdir"
+            subdir.mkdir()
+            file2 = subdir / "file2.txt"
+            file2.write_text("content2")
+            tf.add(file2, arcname="subdir/file2.txt")
+
+        # Extract
+        result = extract_tar(str(tar_path), str(output_dir))
+
+        assert result == str(output_dir)
+        assert (output_dir / "file1.txt").exists()
+        assert (output_dir / "subdir" / "file2.txt").exists()
+        assert (output_dir / "file1.txt").read_text() == "content1"
+        assert (output_dir / "subdir" / "file2.txt").read_text() == "content2"
+
+    def test_extracts_tar_bz2_contents(self, tmp_path):
+        """Should extract all files from a bzip2 tar archive."""
+        tar_path = tmp_path / "test.tar.bz2"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Create a tar.bz2 file
+        with tarfile.open(tar_path, "w:bz2") as tf:
+            file1 = tmp_path / "file1.txt"
+            file1.write_text("content1")
+            tf.add(file1, arcname="file1.txt")
+
+        # Extract
+        result = extract_tar(str(tar_path), str(output_dir))
+
+        assert result == str(output_dir)
+        assert (output_dir / "file1.txt").exists()
+        assert (output_dir / "file1.txt").read_text() == "content1"
+
+    def test_extracts_plain_tar_contents(self, tmp_path):
+        """Should extract all files from an uncompressed tar archive."""
+        tar_path = tmp_path / "test.tar"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        # Create a plain tar file
+        with tarfile.open(tar_path, "w") as tf:
+            file1 = tmp_path / "file1.txt"
+            file1.write_text("content1")
+            tf.add(file1, arcname="file1.txt")
+
+        # Extract
+        result = extract_tar(str(tar_path), str(output_dir))
+
+        assert result == str(output_dir)
+        assert (output_dir / "file1.txt").exists()
+        assert (output_dir / "file1.txt").read_text() == "content1"

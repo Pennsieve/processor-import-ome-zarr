@@ -1,4 +1,5 @@
 import os
+import tarfile
 import zipfile
 
 import pytest
@@ -20,19 +21,19 @@ class TestOmeZarrExtractor:
 
         assert result == str(input_dir / "data.zip")
 
-    def test_find_input_file_no_zip(self, tmp_path):
-        """Should raise FileNotFoundError when no ZIP file exists."""
+    def test_find_input_file_no_archive(self, tmp_path):
+        """Should raise FileNotFoundError when no archive file exists."""
         input_dir = tmp_path / "input"
         input_dir.mkdir()
-        (input_dir / "data.txt").write_text("not a zip")
+        (input_dir / "data.txt").write_text("not an archive")
 
         extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
 
-        with pytest.raises(FileNotFoundError, match="Expected exactly one ZIP file"):
+        with pytest.raises(FileNotFoundError, match="Expected exactly one archive file"):
             extractor.find_input_file()
 
-    def test_find_input_file_multiple_zips(self, tmp_path):
-        """Should raise ValueError when multiple ZIP files exist."""
+    def test_find_input_file_multiple_archives(self, tmp_path):
+        """Should raise ValueError when multiple archive files exist."""
         input_dir = tmp_path / "input"
         input_dir.mkdir()
         (input_dir / "data1.zip").write_bytes(b"fake zip")
@@ -40,8 +41,30 @@ class TestOmeZarrExtractor:
 
         extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
 
-        with pytest.raises(ValueError, match="Expected exactly one ZIP file"):
+        with pytest.raises(ValueError, match="Expected exactly one archive file"):
             extractor.find_input_file()
+
+    def test_find_input_file_tar_gz(self, tmp_path):
+        """Should find .tar.gz files."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        (input_dir / "data.tar.gz").write_bytes(b"fake tar")
+
+        extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
+        result = extractor.find_input_file()
+
+        assert result == str(input_dir / "data.tar.gz")
+
+    def test_find_input_file_tgz(self, tmp_path):
+        """Should find .tgz files."""
+        input_dir = tmp_path / "input"
+        input_dir.mkdir()
+        (input_dir / "data.tgz").write_bytes(b"fake tar")
+
+        extractor = OmeZarrExtractor(str(input_dir), str(tmp_path / "output"))
+        result = extractor.find_input_file()
+
+        assert result == str(input_dir / "data.tgz")
 
     def test_extract_valid_zarr_with_nested_folder(self, tmp_path):
         """Should extract ZIP with nested folder and use that folder's name."""
@@ -131,6 +154,95 @@ class TestOmeZarrExtractor:
             zf.writestr("sample.zarr/.zgroup", '{"zarr_format": 2}')
             zf.writestr("sample.zarr/0/.zarray", "{}")
             zf.writestr("sample.zarr/0/0/0", b"\x00" * 10)
+
+        extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
+        zarr_root, zarr_name, files = extractor.process()
+
+        assert zarr_name == "sample.zarr"
+        assert zarr_root.endswith("sample.zarr")
+        assert len(files) == 4  # .zattrs, .zgroup, 0/.zarray, 0/0/0
+
+    def test_extract_tar_gz_with_nested_folder(self, tmp_path):
+        """Should extract .tar.gz with nested folder and use that folder's name."""
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # Create temp directory structure for tarball
+        tar_content_dir = tmp_path / "tar_content"
+        zarr_dir = tar_content_dir / "sample.zarr"
+        zarr_dir.mkdir(parents=True)
+        (zarr_dir / ".zattrs").write_text('{"multiscales": []}')
+        (zarr_dir / ".zgroup").write_text('{"zarr_format": 2}')
+        (zarr_dir / "0").mkdir()
+        (zarr_dir / "0" / ".zarray").write_text("{}")
+
+        # Create a .tar.gz with the OME-Zarr structure
+        tar_path = input_dir / "data.zarr.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(zarr_dir, arcname="sample.zarr")
+
+        extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
+        zarr_root, zarr_name = extractor.extract(str(tar_path))
+
+        # Nested folder name takes precedence
+        assert zarr_root.endswith("sample.zarr")
+        assert zarr_name == "sample.zarr"
+        assert os.path.exists(zarr_root)
+        assert os.path.exists(os.path.join(zarr_root, ".zattrs"))
+
+    def test_extract_tar_gz_direct(self, tmp_path):
+        """Should extract .tar.gz without container folder and use archive filename as zarr name."""
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # Create temp directory structure for tarball (zarr files directly)
+        tar_content_dir = tmp_path / "tar_content"
+        tar_content_dir.mkdir()
+        (tar_content_dir / ".zattrs").write_text('{"multiscales": []}')
+        (tar_content_dir / ".zgroup").write_text('{"zarr_format": 2}')
+        (tar_content_dir / "0").mkdir()
+        (tar_content_dir / "0" / ".zarray").write_text("{}")
+
+        # Create a .tar.gz with zarr files directly at root
+        tar_path = input_dir / "my-data.zarr.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tf:
+            for item in tar_content_dir.iterdir():
+                tf.add(item, arcname=item.name)
+
+        extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
+        zarr_root, zarr_name = extractor.extract(str(tar_path))
+
+        # Extracts to folder named after archive, that folder is the zarr root
+        assert zarr_root.endswith("my-data.zarr")
+        assert zarr_name == "my-data.zarr"
+        assert os.path.exists(os.path.join(zarr_root, ".zattrs"))
+
+    def test_process_full_workflow_tar_gz(self, tmp_path):
+        """Should process a complete OME-Zarr import workflow with .tar.gz."""
+        input_dir = tmp_path / "input"
+        output_dir = tmp_path / "output"
+        input_dir.mkdir()
+        output_dir.mkdir()
+
+        # Create temp directory structure for tarball
+        tar_content_dir = tmp_path / "tar_content"
+        zarr_dir = tar_content_dir / "sample.zarr"
+        zarr_dir.mkdir(parents=True)
+        (zarr_dir / ".zattrs").write_text('{"multiscales": []}')
+        (zarr_dir / ".zgroup").write_text('{"zarr_format": 2}')
+        (zarr_dir / "0").mkdir()
+        (zarr_dir / "0" / ".zarray").write_text("{}")
+        (zarr_dir / "0" / "0").mkdir()
+        (zarr_dir / "0" / "0" / "0").write_bytes(b"\x00" * 10)
+
+        # Create a .tar.gz with OME-Zarr structure
+        tar_path = input_dir / "sample.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(zarr_dir, arcname="sample.zarr")
 
         extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
         zarr_root, zarr_name, files = extractor.process()

@@ -1,20 +1,27 @@
 import logging
 import os
 
-from processor.utils import collect_files, extract_zip, find_zarr_root
+from processor.utils import (
+    collect_files,
+    extract_tar,
+    extract_zip,
+    find_zarr_root,
+    get_archive_type,
+    strip_archive_extension,
+)
 
 log = logging.getLogger(__name__)
 
 
 class OmeZarrExtractor:
-    """Extracts and processes zipped OME-Zarr archives."""
+    """Extracts and processes OME-Zarr archives."""
 
     def __init__(self, input_dir: str, output_dir: str):
         """
         Initialize the extractor.
 
         Args:
-            input_dir: Directory containing input ZIP files
+            input_dir: Directory containing input archive files
             output_dir: Directory for extracted output
         """
         self.input_dir = input_dir
@@ -22,48 +29,58 @@ class OmeZarrExtractor:
 
     def find_input_file(self) -> str:
         """
-        Find the input ZIP file in the input directory.
+        Find the input archive file in the input directory.
+
+        Supports: .zip, .tar, .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz
 
         Returns:
-            Path to the ZIP file
+            Path to the archive file
 
         Raises:
-            FileNotFoundError: If no ZIP file is found
-            ValueError: If multiple ZIP files are found
+            FileNotFoundError: If no archive file is found
+            ValueError: If multiple archive files are found
         """
-        zip_files = [f for f in os.listdir(self.input_dir) if f.endswith(".zip")]
-        if len(zip_files) == 0:
-            raise FileNotFoundError("Expected exactly one ZIP file, found 0")
-        if len(zip_files) > 1:
-            raise ValueError(f"Expected exactly one ZIP file, found {len(zip_files)}")
-        return os.path.join(self.input_dir, zip_files[0])
+        archive_files = [f for f in os.listdir(self.input_dir) if get_archive_type(f) is not None]
+        if len(archive_files) == 0:
+            raise FileNotFoundError("Expected exactly one archive file, found 0")
+        if len(archive_files) > 1:
+            raise ValueError(f"Expected exactly one archive file, found {len(archive_files)}")
+        return os.path.join(self.input_dir, archive_files[0])
 
-    def extract(self, zip_path: str) -> tuple[str, str]:
+    def extract(self, archive_path: str) -> tuple[str, str]:
         """
-        Extract a ZIP file and locate the OME-Zarr root.
+        Extract an archive file and locate the OME-Zarr root.
 
-        Extracts to a directory named after the zip file (minus .zip extension),
+        Extracts to a directory named after the archive file (minus extension),
         so the directory name becomes the zarr/asset name.
 
         Args:
-            zip_path: Path to the ZIP file
+            archive_path: Path to the archive file
 
         Returns:
             Tuple of (zarr_root_path, zarr_name)
 
         Raises:
-            ValueError: If no valid OME-Zarr directory is found
+            ValueError: If no valid OME-Zarr directory is found or unsupported format
         """
-        log.info(f"Extracting ZIP file: {zip_path}")
+        log.info(f"Extracting archive: {archive_path}")
 
-        # Derive zarr name from zip filename (strip .zip)
-        zip_basename = os.path.basename(zip_path)
-        zarr_name = zip_basename[:-4] if zip_basename.endswith(".zip") else zip_basename
+        # Derive zarr name from archive filename (strip archive extension)
+        archive_basename = os.path.basename(archive_path)
+        zarr_name = strip_archive_extension(archive_basename)
 
         # Extract to a directory named after the zarr
         extraction_dir = os.path.join(self.output_dir, zarr_name)
         os.makedirs(extraction_dir, exist_ok=True)
-        extract_zip(zip_path, extraction_dir)
+
+        # Choose extraction function based on archive type
+        archive_type = get_archive_type(archive_basename)
+        if archive_type == ".zip":
+            extract_zip(archive_path, extraction_dir)
+        elif archive_type in (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz"):
+            extract_tar(archive_path, extraction_dir)
+        else:
+            raise ValueError(f"Unsupported archive format: {archive_basename}")
 
         # Find the OME-Zarr root
         zarr_root = find_zarr_root(extraction_dir)
@@ -72,7 +89,7 @@ class OmeZarrExtractor:
 
         log.info(f"Found OME-Zarr root: {zarr_root}")
 
-        # If the zip contained a nested folder, use that folder's name instead
+        # If the archive contained a nested folder, use that folder's name instead
         if zarr_root != extraction_dir:
             zarr_name = os.path.basename(zarr_root)
 
@@ -99,8 +116,8 @@ class OmeZarrExtractor:
         Returns:
             Tuple of (zarr_root_path, zarr_name, list of (abs_path, rel_path) tuples)
         """
-        zip_path = self.find_input_file()
-        zarr_root, zarr_name = self.extract(zip_path)
+        archive_path = self.find_input_file()
+        zarr_root, zarr_name = self.extract(archive_path)
         files = self.collect_zarr_files(zarr_root)
 
         return zarr_root, zarr_name, files

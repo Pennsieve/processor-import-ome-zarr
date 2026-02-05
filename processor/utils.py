@@ -1,5 +1,56 @@
 import os
+import tarfile
 import zipfile
+
+# Supported archive extensions (order matters - longer extensions first)
+SUPPORTED_EXTENSIONS = [
+    ".tar.gz",
+    ".tgz",
+    ".tar.bz2",
+    ".tbz2",
+    ".tar.xz",
+    ".txz",
+    ".tar",
+    ".zip",
+]
+
+
+def get_archive_type(filename: str) -> str | None:
+    """
+    Detect archive type from filename extension.
+
+    Args:
+        filename: Name of the file to check
+
+    Returns:
+        The matching extension (e.g., '.tar.gz', '.zip') or None if unsupported
+    """
+    lower = filename.lower()
+    for ext in SUPPORTED_EXTENSIONS:
+        if lower.endswith(ext):
+            return ext
+    return None
+
+
+def strip_archive_extension(filename: str) -> str:
+    """
+    Strip archive extension(s) to get base name.
+
+    Args:
+        filename: Name of the archive file
+
+    Returns:
+        Filename without the archive extension
+
+    Examples:
+        sample.zarr.tar.gz -> sample.zarr
+        data.zarr.zip -> data.zarr
+    """
+    lower = filename.lower()
+    for ext in SUPPORTED_EXTENSIONS:
+        if lower.endswith(ext):
+            return filename[: -len(ext)]
+    return filename
 
 
 def find_zarr_root(extracted_dir: str) -> str | None:
@@ -88,6 +139,26 @@ def extract_zip(zip_path: str, output_dir: str) -> str:
     """
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(output_dir)
+
+    return output_dir
+
+
+def extract_tar(tar_path: str, output_dir: str) -> str:
+    """
+    Extract a tar archive to the specified directory.
+
+    Handles .tar, .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz formats
+    automatically via tarfile's 'r:*' mode.
+
+    Args:
+        tar_path: Path to the tar archive
+        output_dir: Directory to extract files to
+
+    Returns:
+        Path to the extraction directory
+    """
+    with tarfile.open(tar_path, "r:*") as tar:
+        tar.extractall(output_dir)
 
     return output_dir
 
