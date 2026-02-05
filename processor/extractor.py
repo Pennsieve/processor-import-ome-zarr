@@ -3,8 +3,7 @@ import os
 
 from processor.utils import (
     collect_files,
-    extract_tar,
-    extract_zip,
+    extract_archive,
     find_zarr_root,
     get_archive_type,
     strip_archive_extension,
@@ -72,15 +71,7 @@ class OmeZarrExtractor:
         # Extract to a directory named after the zarr
         extraction_dir = os.path.join(self.output_dir, zarr_name)
         os.makedirs(extraction_dir, exist_ok=True)
-
-        # Choose extraction function based on archive type
-        archive_type = get_archive_type(archive_basename)
-        if archive_type == ".zip":
-            extract_zip(archive_path, extraction_dir)
-        elif archive_type in (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz"):
-            extract_tar(archive_path, extraction_dir)
-        else:
-            raise ValueError(f"Unsupported archive format: {archive_basename}")
+        extract_archive(archive_path, extraction_dir)
 
         # Find the OME-Zarr root
         zarr_root = find_zarr_root(extraction_dir)

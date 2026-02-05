@@ -163,6 +163,33 @@ def extract_tar(tar_path: str, output_dir: str) -> str:
     return output_dir
 
 
+def extract_archive(archive_path: str, output_dir: str) -> str:
+    """
+    Extract an archive to the specified directory.
+
+    Automatically detects format from filename and calls the appropriate
+    extraction function.
+
+    Args:
+        archive_path: Path to the archive file
+        output_dir: Directory to extract files to
+
+    Returns:
+        Path to the extraction directory
+
+    Raises:
+        ValueError: If archive format is not supported
+    """
+    archive_type = get_archive_type(os.path.basename(archive_path))
+    if archive_type == ".zip":
+        return extract_zip(archive_path, output_dir)
+    elif archive_type is not None:
+        # All other supported types are tar variants
+        return extract_tar(archive_path, output_dir)
+    else:
+        raise ValueError(f"Unsupported archive format: {archive_path}")
+
+
 def collect_files(directory: str) -> list[tuple[str, str]]:
     """
     Recursively collect all files in a directory.

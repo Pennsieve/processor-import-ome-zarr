@@ -2,9 +2,12 @@ import os
 import tarfile
 import zipfile
 
+import pytest
+
 from processor.utils import (
     _is_zarr_root,
     collect_files,
+    extract_archive,
     extract_tar,
     extract_zip,
     find_zarr_root,
@@ -309,3 +312,47 @@ class TestExtractTar:
         assert result == str(output_dir)
         assert (output_dir / "file1.txt").exists()
         assert (output_dir / "file1.txt").read_text() == "content1"
+
+
+class TestExtractArchive:
+    """Tests for extract_archive function."""
+
+    def test_extracts_zip_file(self, tmp_path):
+        """Should extract ZIP files."""
+        zip_path = tmp_path / "test.zip"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("file1.txt", "content1")
+
+        result = extract_archive(str(zip_path), str(output_dir))
+
+        assert result == str(output_dir)
+        assert (output_dir / "file1.txt").read_text() == "content1"
+
+    def test_extracts_tar_gz_file(self, tmp_path):
+        """Should extract .tar.gz files."""
+        tar_path = tmp_path / "test.tar.gz"
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        file1 = tmp_path / "file1.txt"
+        file1.write_text("content1")
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(file1, arcname="file1.txt")
+
+        result = extract_archive(str(tar_path), str(output_dir))
+
+        assert result == str(output_dir)
+        assert (output_dir / "file1.txt").read_text() == "content1"
+
+    def test_raises_for_unsupported_format(self, tmp_path):
+        """Should raise ValueError for unsupported formats."""
+        unsupported_path = tmp_path / "test.rar"
+        unsupported_path.write_bytes(b"fake")
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+
+        with pytest.raises(ValueError, match="Unsupported archive format"):
+            extract_archive(str(unsupported_path), str(output_dir))
