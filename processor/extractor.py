@@ -38,30 +38,12 @@ class OmeZarrExtractor:
             raise ValueError(f"Expected exactly one ZIP file, found {len(zip_files)}")
         return os.path.join(self.input_dir, zip_files[0])
 
-    def get_zarr_name_from_zip(self, zip_path: str) -> str:
-        """
-        Derive the zarr name from the zip filename.
-
-        Examples:
-            'sample.zarr.zip' -> 'sample.zarr'
-            'sample.zip' -> 'sample'
-            'my-data.ome.zarr.zip' -> 'my-data.ome.zarr'
-
-        Args:
-            zip_path: Path to the ZIP file
-
-        Returns:
-            Derived zarr name
-        """
-        basename = os.path.basename(zip_path)
-        # Remove .zip extension
-        if basename.endswith(".zip"):
-            basename = basename[:-4]
-        return basename
-
     def extract(self, zip_path: str) -> tuple[str, str]:
         """
         Extract a ZIP file and locate the OME-Zarr root.
+
+        Extracts to a directory named after the zip file (minus .zip extension),
+        so the directory name becomes the zarr/asset name.
 
         Args:
             zip_path: Path to the ZIP file
@@ -74,26 +56,24 @@ class OmeZarrExtractor:
         """
         log.info(f"Extracting ZIP file: {zip_path}")
 
-        # Derive expected zarr name from zip filename
-        expected_zarr_name = self.get_zarr_name_from_zip(zip_path)
+        # Derive zarr name from zip filename (strip .zip)
+        zip_basename = os.path.basename(zip_path)
+        zarr_name = zip_basename[:-4] if zip_basename.endswith(".zip") else zip_basename
 
-        # Extract to output directory
-        extraction_dir = os.path.join(self.output_dir, "extracted")
+        # Extract to a directory named after the zarr
+        extraction_dir = os.path.join(self.output_dir, zarr_name)
         os.makedirs(extraction_dir, exist_ok=True)
         extract_zip(zip_path, extraction_dir)
 
-        # Find the OME-Zarr root, passing expected name for better detection
-        zarr_root = find_zarr_root(extraction_dir, expected_name=expected_zarr_name)
+        # Find the OME-Zarr root
+        zarr_root = find_zarr_root(extraction_dir)
         if zarr_root is None:
             raise ValueError("No valid OME-Zarr directory found in archive")
 
         log.info(f"Found OME-Zarr root: {zarr_root}")
 
-        # Determine zarr name: if extracted directly (root == extraction_dir), use zip filename
-        # Otherwise use the actual directory name
-        if zarr_root == extraction_dir:
-            zarr_name = expected_zarr_name
-        else:
+        # If the zip contained a nested folder, use that folder's name instead
+        if zarr_root != extraction_dir:
             zarr_name = os.path.basename(zarr_root)
 
         return zarr_root, zarr_name

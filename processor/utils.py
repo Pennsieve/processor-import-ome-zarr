@@ -2,18 +2,15 @@ import os
 import zipfile
 
 
-def find_zarr_root(extracted_dir: str, expected_name: str | None = None) -> str | None:
+def find_zarr_root(extracted_dir: str) -> str | None:
     """
     Find the root OME-Zarr directory within an extracted archive.
 
-    OME-Zarr directories are identified by the presence of zarr metadata files
-    (.zattrs, .zgroup, or .zarray) at the root level. We prioritize finding
-    directories with .zgroup (indicating a zarr group/hierarchy) over .zarray
-    (which could be a sub-array like a resolution level).
+    OME-Zarr directories are identified by the presence of .zattrs or .zgroup
+    at the root level.
 
     Args:
         extracted_dir: Path to the directory containing extracted files
-        expected_name: Optional expected zarr directory name (e.g., from zip filename)
 
     Returns:
         Path to the OME-Zarr root directory, or None if not found
@@ -21,12 +18,6 @@ def find_zarr_root(extracted_dir: str, expected_name: str | None = None) -> str 
     # Check if extracted_dir itself is a zarr root (has .zgroup or .zattrs)
     if _is_zarr_root(extracted_dir):
         return extracted_dir
-
-    # If we have an expected name, check for it first
-    if expected_name:
-        expected_path = os.path.join(extracted_dir, expected_name)
-        if os.path.isdir(expected_path) and _is_zarr_root(expected_path):
-            return expected_path
 
     # Check immediate children for zarr roots
     for entry in os.listdir(extracted_dir):

@@ -66,20 +66,6 @@ class TestFindZarrRoot:
         result = find_zarr_root(str(temp_zarr_directory))
         assert result == str(temp_zarr_directory)
 
-    def test_finds_expected_name_first(self, tmp_path):
-        """Should find zarr directory matching expected name."""
-        # Create two zarr directories
-        zarr1 = tmp_path / "other.zarr"
-        zarr1.mkdir()
-        (zarr1 / ".zgroup").write_text("{}")
-
-        zarr2 = tmp_path / "expected.zarr"
-        zarr2.mkdir()
-        (zarr2 / ".zgroup").write_text("{}")
-
-        result = find_zarr_root(str(tmp_path), expected_name="expected.zarr")
-        assert result == str(zarr2)
-
     def test_prefers_zarr_root_over_subarray(self, tmp_path):
         """Should find zarr root (.zgroup) over sub-array (.zarray only)."""
         # Create a structure like extracted zarr: root has .zgroup, subdirs have .zarray

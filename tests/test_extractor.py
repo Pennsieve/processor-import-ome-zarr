@@ -43,22 +43,14 @@ class TestOmeZarrExtractor:
         with pytest.raises(ValueError, match="Expected exactly one ZIP file"):
             extractor.find_input_file()
 
-    def test_get_zarr_name_from_zip(self, tmp_path):
-        """Should derive zarr name from zip filename."""
-        extractor = OmeZarrExtractor(str(tmp_path), str(tmp_path))
-
-        assert extractor.get_zarr_name_from_zip("/path/to/sample.zarr.zip") == "sample.zarr"
-        assert extractor.get_zarr_name_from_zip("/data/input/my-data.ome.zarr.zip") == "my-data.ome.zarr"
-        assert extractor.get_zarr_name_from_zip("simple.zip") == "simple"
-
-    def test_extract_valid_zarr_with_folder(self, tmp_path):
-        """Should extract ZIP with container folder and find OME-Zarr root."""
+    def test_extract_valid_zarr_with_nested_folder(self, tmp_path):
+        """Should extract ZIP with nested folder and use that folder's name."""
         input_dir = tmp_path / "input"
         output_dir = tmp_path / "output"
         input_dir.mkdir()
         output_dir.mkdir()
 
-        # Create a ZIP with OME-Zarr structure inside a folder
+        # Create a ZIP with OME-Zarr structure inside a nested folder
         zip_path = input_dir / "data.zarr.zip"
         with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("sample.zarr/.zattrs", '{"multiscales": []}')
@@ -68,6 +60,7 @@ class TestOmeZarrExtractor:
         extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
         zarr_root, zarr_name = extractor.extract(str(zip_path))
 
+        # Nested folder name takes precedence
         assert zarr_root.endswith("sample.zarr")
         assert zarr_name == "sample.zarr"
         assert os.path.exists(zarr_root)
@@ -90,8 +83,8 @@ class TestOmeZarrExtractor:
         extractor = OmeZarrExtractor(str(input_dir), str(output_dir))
         zarr_root, zarr_name = extractor.extract(str(zip_path))
 
-        # zarr_root is the extraction dir, zarr_name comes from zip filename
-        assert zarr_root.endswith("extracted")
+        # Extracts to folder named after zip, that folder is the zarr root
+        assert zarr_root.endswith("my-data.zarr")
         assert zarr_name == "my-data.zarr"
         assert os.path.exists(os.path.join(zarr_root, ".zattrs"))
 
