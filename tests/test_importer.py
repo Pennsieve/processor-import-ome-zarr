@@ -56,6 +56,7 @@ class TestOmeZarrImporter:
         # Setup workflow client mock
         mock_workflow_instance = Mock()
         mock_workflow_instance.dataset_id = "dataset-123"
+        mock_workflow_instance.package_ids = ["N:package:pkg-123"]
         mock_workflow_client = Mock()
         mock_workflow_client.get_workflow_instance.return_value = mock_workflow_instance
         mock_wf_class.return_value = mock_workflow_client
@@ -91,6 +92,7 @@ class TestOmeZarrImporter:
         call_kwargs = mock_import_client.create_batched.call_args[1]
         assert call_kwargs["integration_id"] == mock_config.WORKFLOW_INSTANCE_ID
         assert call_kwargs["dataset_id"] == "dataset-123"
+        assert call_kwargs["package_id"] == "N:package:pkg-123"
         assert call_kwargs["options"]["asset_type"] == mock_config.ASSET_TYPE
         assert call_kwargs["options"]["asset_name"] == "sample.zarr"
 

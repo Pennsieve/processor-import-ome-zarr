@@ -66,11 +66,15 @@ class OmeZarrImporter:
 
         workflow_instance_id = self.config.WORKFLOW_INSTANCE_ID
 
-        # Get dataset_id from workflow instance
+        # Get dataset_id and package_id from workflow instance
         workflow_instance = self.workflow_client.get_workflow_instance(workflow_instance_id)
         dataset_id = workflow_instance.dataset_id
+        package_id = workflow_instance.package_ids[0] if workflow_instance.package_ids else None
 
-        log.info(f"dataset_id={dataset_id} starting import of OME-Zarr files")
+        if not package_id:
+            raise ValueError("No package ID found in workflow instance")
+
+        log.info(f"dataset_id={dataset_id} package_id={package_id} starting import of OME-Zarr files")
 
         # Prepare import files with client-generated upload keys
         import_files = prepare_import_files(files, zarr_name)
@@ -86,6 +90,7 @@ class OmeZarrImporter:
         import_id = self.import_client.create_batched(
             integration_id=workflow_instance_id,
             dataset_id=dataset_id,
+            package_id=package_id,
             import_files=import_files,
             options=options,
         )

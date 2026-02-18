@@ -39,13 +39,16 @@ class ImportClient(BaseClient):
         self.base_url = f"{session_manager.api_host2}/import"
 
     @BaseClient.retry_with_refresh
-    def create(self, integration_id: str, dataset_id: str, import_files: list[ImportFile], options: dict) -> str:
+    def create(
+        self, integration_id: str, dataset_id: str, package_id: str, import_files: list[ImportFile], options: dict
+    ) -> str:
         """
         Create an import manifest for viewer assets.
 
         Args:
             integration_id: Workflow integration UUID
             dataset_id: Dataset ID
+            package_id: Package ID to associate the import with
             import_files: List of ImportFile objects
             options: Options dict with asset_type, properties, provenance_id, and optionally asset_name
 
@@ -56,6 +59,7 @@ class ImportClient(BaseClient):
 
         body = {
             "integration_id": integration_id,
+            "package_id": package_id,
             "import_type": "viewerassets",
             "files": [{"upload_key": str(f.upload_key), "file_path": f.file_path} for f in import_files],
             "options": options,
@@ -102,7 +106,7 @@ class ImportClient(BaseClient):
             raise
 
     def create_batched(
-        self, integration_id: str, dataset_id: str, import_files: list[ImportFile], options: dict
+        self, integration_id: str, dataset_id: str, package_id: str, import_files: list[ImportFile], options: dict
     ) -> str:
         """
         Create an import manifest with batched file additions to avoid API Gateway size limits.
@@ -110,6 +114,7 @@ class ImportClient(BaseClient):
         Args:
             integration_id: The workflow/integration ID
             dataset_id: The dataset ID
+            package_id: The package ID to associate the import with
             import_files: List of all ImportFile objects
             options: Options dict for viewer assets
 
@@ -126,7 +131,7 @@ class ImportClient(BaseClient):
         log.info(f"Creating import manifest with {total_files} files in {total_batches} batch(es)")
 
         first_batch = import_files[:batch_size]
-        import_id = self.create(integration_id, dataset_id, first_batch, options)
+        import_id = self.create(integration_id, dataset_id, package_id, first_batch, options)
 
         log.info(f"import_id={import_id} created manifest with initial batch of {len(first_batch)} files")
 

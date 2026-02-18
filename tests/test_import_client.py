@@ -117,7 +117,7 @@ class TestImportClient:
             "provenance_id": "integration-123",
         }
 
-        result = client.create("integration-123", "dataset-123", import_files, options)
+        result = client.create("integration-123", "dataset-123", "N:package:pkg-123", import_files, options)
 
         assert result == "import-123"
 
@@ -127,6 +127,7 @@ class TestImportClient:
         request = responses.calls[0].request
         body = json.loads(request.body)
         assert body["integration_id"] == "integration-123"
+        assert body["package_id"] == "N:package:pkg-123"
         assert body["import_type"] == "viewerassets"
         assert body["files"][0]["upload_key"] == "11111111-1111-1111-1111-111111111111"
         assert body["files"][0]["file_path"] == "sample.zarr/.zattrs"
@@ -202,7 +203,7 @@ class TestImportClient:
         ]
         options = {"asset_type": "ome-zarr", "properties": {}, "provenance_id": "integration-123"}
 
-        import_id = client.create_batched("integration-123", "dataset-123", import_files, options)
+        import_id = client.create_batched("integration-123", "dataset-123", "N:package:pkg-123", import_files, options)
 
         assert import_id == "import-123"
         assert len(responses.calls) == 1  # Only one create call, no appends

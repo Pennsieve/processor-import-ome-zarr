@@ -81,10 +81,10 @@ def find_zarr_root(extracted_dir: str) -> str | None:
 
 def _is_zarr_root(path: str) -> bool:
     """
-    Check if a directory is a zarr root (group with .zgroup or .zattrs).
+    Check if a directory is a zarr root (group with .zgroup, .zattrs, or zarr.json).
 
-    This is more specific than is_zarr_directory - it requires .zgroup or .zattrs,
-    not just .zarray, to avoid matching resolution level sub-arrays.
+    This is more specific than is_zarr_directory - it requires .zgroup, .zattrs,
+    or zarr.json (v3), not just .zarray, to avoid matching resolution level sub-arrays.
 
     Args:
         path: Path to check
@@ -95,20 +95,25 @@ def _is_zarr_root(path: str) -> bool:
     if not os.path.isdir(path):
         return False
 
+    # Zarr v2 metadata files
     zattrs_path = os.path.join(path, ".zattrs")
     zgroup_path = os.path.join(path, ".zgroup")
+    # Zarr v3 metadata file
+    zarr_json_path = os.path.join(path, "zarr.json")
 
-    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path)
+    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path) or os.path.exists(zarr_json_path)
 
 
 def is_zarr_directory(path: str) -> bool:
     """
     Check if a directory is a valid Zarr directory.
 
-    A Zarr directory must contain .zattrs, .zgroup, or .zarray file at its root.
+    Zarr v2: must contain .zattrs, .zgroup, or .zarray file at its root.
     - .zgroup: indicates a zarr group (hierarchical container)
     - .zarray: indicates a zarr array (data container)
     - .zattrs: indicates zarr attributes (often present with OME metadata)
+
+    Zarr v3: must contain zarr.json file at its root.
 
     Args:
         path: Path to check
@@ -119,11 +124,19 @@ def is_zarr_directory(path: str) -> bool:
     if not os.path.isdir(path):
         return False
 
+    # Zarr v2 metadata files
     zattrs_path = os.path.join(path, ".zattrs")
     zgroup_path = os.path.join(path, ".zgroup")
     zarray_path = os.path.join(path, ".zarray")
+    # Zarr v3 metadata file
+    zarr_json_path = os.path.join(path, "zarr.json")
 
-    return os.path.exists(zattrs_path) or os.path.exists(zgroup_path) or os.path.exists(zarray_path)
+    return (
+        os.path.exists(zattrs_path)
+        or os.path.exists(zgroup_path)
+        or os.path.exists(zarray_path)
+        or os.path.exists(zarr_json_path)
+    )
 
 
 def extract_zip(zip_path: str, output_dir: str) -> str:

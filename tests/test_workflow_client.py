@@ -25,14 +25,14 @@ class TestWorkflowClient:
     def test_initialization(self, mock_session_manager):
         """Should initialize with correct base URL."""
         client = WorkflowClient(mock_session_manager)
-        assert client.base_url == "https://api.pennsieve.net/workflows"
+        assert client.base_url == "https://api2.pennsieve.net/compute/workflows"
 
     @responses.activate
     def test_get_workflow_instance(self, mock_session_manager):
         """Should get workflow instance details."""
         responses.add(
             responses.GET,
-            "https://api.pennsieve.net/workflows/instances/instance-123",
+            "https://api2.pennsieve.net/compute/workflows/instances/instance-123",
             json={
                 "uuid": "instance-123",
                 "datasetId": "dataset-456",

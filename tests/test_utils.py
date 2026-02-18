@@ -53,6 +53,13 @@ class TestIsZarrDirectory:
         (zarr_dir / ".zarray").write_text("{}")
         assert is_zarr_directory(str(zarr_dir)) is True
 
+    def test_returns_true_for_directory_with_zarr_json_v3(self, tmp_path):
+        """Should return True for directory with zarr.json file (Zarr v3)."""
+        zarr_dir = tmp_path / "data.zarr"
+        zarr_dir.mkdir()
+        (zarr_dir / "zarr.json").write_text('{"zarr_format": 3}')
+        assert is_zarr_directory(str(zarr_dir)) is True
+
 
 class TestFindZarrRoot:
     """Tests for find_zarr_root function."""
@@ -86,6 +93,15 @@ class TestFindZarrRoot:
         result = find_zarr_root(str(tmp_path))
         assert result == str(tmp_path)
 
+    def test_finds_zarr_v3_root(self, tmp_path):
+        """Should find zarr v3 root with zarr.json."""
+        zarr_dir = tmp_path / "data.zarr"
+        zarr_dir.mkdir()
+        (zarr_dir / "zarr.json").write_text('{"zarr_format": 3, "node_type": "group"}')
+
+        result = find_zarr_root(str(tmp_path))
+        assert result == str(zarr_dir)
+
 
 class TestIsZarrRoot:
     """Tests for _is_zarr_root function (stricter than is_zarr_directory)."""
@@ -104,6 +120,11 @@ class TestIsZarrRoot:
         """Should return False for directory with only .zarray (sub-array, not root)."""
         (tmp_path / ".zarray").write_text("{}")
         assert _is_zarr_root(str(tmp_path)) is False
+
+    def test_returns_true_for_zarr_json_v3(self, tmp_path):
+        """Should return True for directory with zarr.json (Zarr v3)."""
+        (tmp_path / "zarr.json").write_text('{"zarr_format": 3}')
+        assert _is_zarr_root(str(tmp_path)) is True
 
 
 class TestExtractZip:

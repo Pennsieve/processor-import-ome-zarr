@@ -29,7 +29,7 @@ class WorkflowClient(BaseClient):
             session_manager: SessionManager instance for API access
         """
         super().__init__(session_manager)
-        self.base_url = f"{session_manager.api_host}/workflows"
+        self.base_url = f"{session_manager.api_host2}/compute/workflows"
 
     @BaseClient.retry_with_refresh
     def get_workflow_instance(self, workflow_instance_id: str) -> WorkflowInstance:
