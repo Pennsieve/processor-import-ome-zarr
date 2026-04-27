@@ -63,18 +63,18 @@ class OmeZarrImporter:
         workflow_instance_id = self.config.WORKFLOW_INSTANCE_ID
         workflow_instance = self.workflow_client.get_workflow_instance(workflow_instance_id)
         dataset_id = workflow_instance.dataset_id
-        package_id = workflow_instance.package_ids[0] if workflow_instance.package_ids else None
+        package_ids = workflow_instance.package_ids
 
-        if not package_id:
-            raise ValueError("No package ID found in workflow instance")
+        if not package_ids:
+            raise ValueError("No package IDs found in workflow instance")
 
-        log.info(f"dataset_id={dataset_id} package_id={package_id} starting import of OME-Zarr files")
+        log.info(f"dataset_id={dataset_id} package_ids={package_ids} starting import of OME-Zarr files")
 
         response = self.packages_client.create_viewer_asset(
             dataset_id=dataset_id,
             name=zarr_name,
             asset_type=self.config.ASSET_TYPE,
-            package_ids=[package_id],
+            package_ids=package_ids,
             properties={},
         )
         asset = response["asset"]

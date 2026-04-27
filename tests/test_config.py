@@ -46,7 +46,7 @@ class TestConfig:
             "OUTPUT_DIR": "/custom/output",
             "PENNSIEVE_API_KEY": "test-key",
             "PENNSIEVE_API_SECRET": "test-secret",
-            "INTEGRATION_ID": "test-workflow-instance",
+            "WORKFLOW_INSTANCE_ID": "test-workflow-instance",
             "ASSET_TYPE": "custom-type",
         }
         with patch.dict(os.environ, env, clear=True):

@@ -24,8 +24,7 @@ class Config:
         self.PENNSIEVE_API_SECRET = os.getenv("PENNSIEVE_API_SECRET")
 
         # Workflow instance identifier (passed to processor to identify the workflow run)
-        # Note: Environment variable is INTEGRATION_ID for backwards compatibility
-        self.WORKFLOW_INSTANCE_ID = os.getenv("INTEGRATION_ID")
+        self.WORKFLOW_INSTANCE_ID = os.getenv("WORKFLOW_INSTANCE_ID")
 
         # Import settings
         self.IMPORTER_ENABLED = getboolenv("IMPORTER_ENABLED", self.ENVIRONMENT != "local")

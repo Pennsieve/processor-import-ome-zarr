@@ -209,7 +209,7 @@ class TestOmeZarrImporter:
 
         importer = OmeZarrImporter(mock_config)
 
-        with pytest.raises(ValueError, match="No package ID"):
+        with pytest.raises(ValueError, match="No package IDs"):
             importer.import_zarr("sample.zarr", [("/p", "p")])
 
         mock_pkg_class.return_value.create_viewer_asset.assert_not_called()

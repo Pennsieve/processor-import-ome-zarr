@@ -31,7 +31,7 @@ def main():
     # Import to Pennsieve if enabled
     if config.IMPORTER_ENABLED:
         if not config.WORKFLOW_INSTANCE_ID:
-            raise ValueError("INTEGRATION_ID is required when importer is enabled")
+            raise ValueError("WORKFLOW_INSTANCE_ID is required when importer is enabled")
         if not config.PENNSIEVE_API_KEY:
             raise ValueError("PENNSIEVE_API_KEY is required when importer is enabled")
         if not config.PENNSIEVE_API_SECRET:

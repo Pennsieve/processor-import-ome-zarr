@@ -48,7 +48,7 @@ Configuration is managed through environment variables:
 | `PENNSIEVE_API_HOST2` | Pennsieve import service host | `https://api2.pennsieve.net` |
 | `PENNSIEVE_API_KEY` | Pennsieve API key | Required for import |
 | `PENNSIEVE_API_SECRET` | Pennsieve API secret | Required for import |
-| `INTEGRATION_ID` | Workflow integration UUID | Required for import |
+| `WORKFLOW_INSTANCE_ID` | Workflow instance UUID | Required for import |
 | `IMPORTER_ENABLED` | Enable Pennsieve upload | `false` (local), `true` (other) |
 | `ASSET_TYPE` | Viewer asset type | `ome-zarr` |
 
