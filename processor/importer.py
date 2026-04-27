@@ -1,14 +1,18 @@
 import logging
+import posixpath
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import backoff
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 from processor.clients import (
     AuthenticationClient,
-    ImportClient,
-    ImportFile,
+    PackagesClient,
     SessionManager,
     WorkflowClient,
-    prepare_import_files,
 )
 from processor.config import Config
 
@@ -16,18 +20,12 @@ log = logging.getLogger(__name__)
 
 
 class OmeZarrImporter:
-    """Handles importing OME-Zarr files to Pennsieve."""
+    """Handles importing OME-Zarr files to Pennsieve via the packages-service viewer assets API."""
 
     def __init__(self, config: Config):
-        """
-        Initialize the importer.
-
-        Args:
-            config: Configuration instance
-        """
         self.config = config
         self.session_manager = None
-        self.import_client = None
+        self.packages_client = None
         self.workflow_client = None
 
     def _initialize_clients(self) -> None:
@@ -39,34 +37,31 @@ class OmeZarrImporter:
             api_secret=self.config.PENNSIEVE_API_SECRET,
         )
 
-        # Authenticate
         auth_client = AuthenticationClient(self.session_manager)
         auth_client.authenticate()
 
-        # Initialize other clients
-        self.import_client = ImportClient(self.session_manager)
+        self.packages_client = PackagesClient(self.session_manager)
         self.workflow_client = WorkflowClient(self.session_manager)
 
     def import_zarr(self, zarr_name: str, files: list[tuple[str, str]]) -> str:
         """
-        Import an OME-Zarr directory to Pennsieve.
+        Import an OME-Zarr directory to Pennsieve as a viewer asset.
 
-        Creates an import manifest with asset_name set to the zarr directory name,
-        which signals that all files should be grouped under a single viewer asset
-        record pointing to the shared prefix.
+        Calls packages-service POST /assets to create the asset row and obtain temporary
+        STS credentials scoped to a single S3 prefix, uploads every file directly to S3,
+        then PATCHes the asset to status="ready". On unrecoverable failure, DELETEs the
+        partially populated asset.
 
         Args:
-            zarr_name: Name of the OME-Zarr directory (becomes the asset_name)
+            zarr_name: Name of the OME-Zarr directory (used as the asset name)
             files: List of (absolute_path, relative_path) tuples
 
         Returns:
-            Import manifest ID
+            The created viewer asset's UUID
         """
         self._initialize_clients()
 
         workflow_instance_id = self.config.WORKFLOW_INSTANCE_ID
-
-        # Get dataset_id and package_id from workflow instance
         workflow_instance = self.workflow_client.get_workflow_instance(workflow_instance_id)
         dataset_id = workflow_instance.dataset_id
         package_id = workflow_instance.package_ids[0] if workflow_instance.package_ids else None
@@ -76,81 +71,101 @@ class OmeZarrImporter:
 
         log.info(f"dataset_id={dataset_id} package_id={package_id} starting import of OME-Zarr files")
 
-        # Prepare import files with client-generated upload keys
-        import_files = prepare_import_files(files, zarr_name)
-
-        # Options for viewer asset import
-        options = {
-            "asset_type": self.config.ASSET_TYPE,
-            "asset_name": zarr_name,
-            "properties": {},
-        }
-
-        # Create import manifest with batching
-        import_id = self.import_client.create_batched(
-            integration_id=workflow_instance_id,
+        response = self.packages_client.create_viewer_asset(
             dataset_id=dataset_id,
-            package_id=package_id,
-            import_files=import_files,
-            options=options,
+            name=zarr_name,
+            asset_type=self.config.ASSET_TYPE,
+            package_ids=[package_id],
+            properties={},
+        )
+        asset = response["asset"]
+        credentials = response["upload_credentials"]
+        asset_id = asset["id"]
+
+        log.info(
+            f"asset_id={asset_id} created viewer asset; bucket={credentials['bucket']} "
+            f"key_prefix={credentials['key_prefix']} creds_expire_at={credentials.get('expiration')}"
         )
 
-        log.info(f"import_id={import_id} initialized import with {len(import_files)} files for upload")
+        try:
+            started = time.monotonic()
+            self._upload_files(asset_id, zarr_name, files, credentials)
+            elapsed = time.monotonic() - started
+            log.info(f"asset_id={asset_id} uploaded {len(files)} files in {elapsed:.1f}s")
 
-        # Upload all files
-        self._upload_files(import_id, dataset_id, import_files)
+            self.packages_client.update_viewer_asset_status(asset_id, dataset_id, "ready")
+            log.info(f"asset_id={asset_id} marked ready")
+        except Exception:
+            log.error(f"asset_id={asset_id} import failed; cleaning up asset", exc_info=True)
+            try:
+                self.packages_client.delete_viewer_asset(asset_id, dataset_id)
+                log.info(f"asset_id={asset_id} deleted after failure")
+            except Exception:
+                log.exception(f"asset_id={asset_id} cleanup delete failed")
+            raise
 
-        log.info(f"import_id={import_id} import complete")
-        return import_id
+        return asset_id
 
-    def _upload_files(self, import_id: str, dataset_id: str, import_files: list[ImportFile]) -> None:
+    def _upload_files(
+        self,
+        asset_id: str,
+        zarr_name: str,
+        files: list[tuple[str, str]],
+        credentials: dict,
+    ) -> None:
         """
-        Upload files to S3 using presigned URLs.
-
-        Args:
-            import_id: Import manifest ID
-            dataset_id: Dataset ID
-            import_files: List of ImportFile objects
-
-        Raises:
-            RuntimeError: If any upload fails
+        Upload every zarr file to S3 under the asset's key prefix using the supplied
+        STS credentials. Collects all per-file failures and raises RuntimeError if any
+        upload fails.
         """
-        total = len(import_files)
+        bucket = credentials["bucket"]
+        key_prefix = credentials["key_prefix"]
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=credentials["access_key_id"],
+            aws_secret_access_key=credentials["secret_access_key"],
+            aws_session_token=credentials["session_token"],
+            region_name=credentials.get("region"),
+        )
+
+        total = len(files)
         upload_counter = 0
         counter_lock = threading.Lock()
         failed_uploads: list[tuple[str, Exception]] = []
         failed_lock = threading.Lock()
 
-        def upload_file(import_file: ImportFile) -> None:
-            nonlocal upload_counter
-            try:
-                upload_url = self.import_client.get_presign_url(import_id, dataset_id, import_file.upload_key)
-                self.import_client.upload_file(upload_url, import_file.local_path)
+        @backoff.on_exception(backoff.expo, (BotoCoreError, ClientError), max_tries=5)
+        def _put(local_path: str, key: str) -> None:
+            s3_client.upload_file(local_path, bucket, key)
 
+        def upload_one(local_path: str, rel_path: str) -> None:
+            nonlocal upload_counter
+            normalized_rel = rel_path.replace("\\", "/")
+            key = key_prefix + posixpath.join(zarr_name, normalized_rel)
+            try:
+                _put(local_path, key)
                 with counter_lock:
                     upload_counter += 1
                     current = upload_counter
                     if current % 100 == 0 or current == total:
-                        log.info(f"import_id={import_id} uploaded {current}/{total}")
+                        log.info(f"asset_id={asset_id} uploaded {current}/{total}")
             except Exception as e:
                 with failed_lock:
-                    failed_uploads.append((import_file.local_path, e))
-                log.error(f"import_id={import_id} failed to upload {import_file.local_path}: {e}", exc_info=True)
+                    failed_uploads.append((local_path, e))
+                log.error(f"asset_id={asset_id} failed to upload {local_path}: {e}", exc_info=True)
                 raise
 
-        log.info(f"import_id={import_id} starting upload of {total} files")
+        log.info(f"asset_id={asset_id} starting upload of {total} files")
 
-        upload_workers = self.config.UPLOAD_WORKERS
-        with ThreadPoolExecutor(max_workers=upload_workers) as executor:
-            futures = {executor.submit(upload_file, f): f for f in import_files}
+        with ThreadPoolExecutor(max_workers=self.config.UPLOAD_WORKERS) as executor:
+            futures = {executor.submit(upload_one, abs_path, rel_path): abs_path for abs_path, rel_path in files}
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception:
-                    # Error already logged in upload_file, continue to collect all failures
                     pass
 
         if failed_uploads:
             raise RuntimeError(f"Failed to upload {len(failed_uploads)} of {total} files")
 
-        log.info(f"import_id={import_id} uploaded {total} files")
+        log.info(f"asset_id={asset_id} uploaded {total} files")

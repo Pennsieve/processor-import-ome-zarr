@@ -39,8 +39,8 @@ def main():
 
         importer = OmeZarrImporter(config)
         try:
-            manifest_id = importer.import_zarr(zarr_name, files)
-            log.info(f"Successfully imported OME-Zarr. Manifest: {manifest_id}")
+            asset_id = importer.import_zarr(zarr_name, files)
+            log.info(f"Successfully imported OME-Zarr. Asset: {asset_id}")
         except Exception as e:
             log.error(f"Import failed: {e}")
             sys.exit(1)
