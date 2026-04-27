@@ -1,81 +1,160 @@
+import base64
 import json
 import logging
+from abc import ABC, abstractmethod
 
 import boto3
 import requests
 
-from .base_client import DEFAULT_TIMEOUT, SessionManager
+from .base_client import DEFAULT_TIMEOUT
 
 log = logging.getLogger()
 
 
-class AuthenticationClient:
-    """Handles AWS Cognito authentication for Pennsieve API."""
+class AuthenticationProvider(ABC):
+    """Interface for authentication strategies.
 
-    def __init__(self, session_manager: SessionManager):
-        """
-        Initialize the authentication client.
+    All authentication methods ultimately produce a session token and the ability to
+    refresh it. Implementations differ only in how they bootstrap.
+    """
 
-        Args:
-            session_manager: SessionManager instance
-        """
-        self.session_manager = session_manager
-        # Register self with session manager for refresh capability
-        session_manager.set_auth_client(self)
+    @abstractmethod
+    def get_session_token(self) -> str:
+        """Return the current session token."""
+        ...
 
-    def authenticate(self) -> str:
-        """
-        Authenticate with Pennsieve using API key/secret via AWS Cognito.
+    @abstractmethod
+    def refresh(self) -> str:
+        """Refresh and return a new session token."""
+        ...
 
-        Fetches Cognito configuration dynamically from the API, then
-        authenticates using the provided credentials.
 
-        Returns:
-            Session token (access token)
+class CognitoClient:
+    """Shared Cognito interaction logic used by all authentication providers."""
 
-        Raises:
-            Exception: If authentication fails
-        """
-        log.info("Authenticating with Pennsieve...")
+    def __init__(self, api_host):
+        self.api_host = api_host
+        self._cognito_config = None
 
-        try:
-            # Fetch Cognito configuration from API
-            url = f"{self.session_manager.api_host}/authentication/cognito-config"
-            response = requests.get(url, timeout=DEFAULT_TIMEOUT)
-            response.raise_for_status()
-            data = json.loads(response.content)
+    def _get_cognito_config(self):
+        if self._cognito_config is not None:
+            return self._cognito_config
 
-            cognito_app_client_id = data["tokenPool"]["appClientId"]
-            cognito_region = data["region"]
+        url = f"{self.api_host}/authentication/cognito-config"
+        response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+        data = json.loads(response.content)
 
-            # Create Cognito client and authenticate
-            cognito_client = boto3.client(
-                "cognito-idp",
-                region_name=cognito_region,
-                aws_access_key_id="",
-                aws_secret_access_key="",
-            )
+        self._cognito_config = {
+            "app_client_id": data["tokenPool"]["appClientId"],
+            "region": data["region"],
+        }
+        return self._cognito_config
 
-            login_response = cognito_client.initiate_auth(
-                AuthFlow="USER_PASSWORD_AUTH",
-                AuthParameters={
-                    "USERNAME": self.session_manager.api_key,
-                    "PASSWORD": self.session_manager.api_secret,
-                },
-                ClientId=cognito_app_client_id,
-            )
+    def _get_idp_client(self):
+        config = self._get_cognito_config()
+        return boto3.client(
+            "cognito-idp",
+            region_name=config["region"],
+            aws_access_key_id="",
+            aws_secret_access_key="",
+        )
 
-            token = login_response["AuthenticationResult"]["AccessToken"]
-            self.session_manager.session_token = token
-            log.info("Authentication successful")
-            return token
+    def authenticate(self, api_key, api_secret):
+        """Exchange API key/secret for session + refresh tokens via Cognito USER_PASSWORD_AUTH."""
+        config = self._get_cognito_config()
+        idp_client = self._get_idp_client()
 
-        except requests.HTTPError as e:
-            log.error(f"Failed to reach authentication server: {e}")
-            raise
-        except json.JSONDecodeError as e:
-            log.error(f"Failed to decode authentication response: {e}")
-            raise
-        except Exception as e:
-            log.error(f"Failed to authenticate: {e}")
-            raise
+        login_response = idp_client.initiate_auth(
+            AuthFlow="USER_PASSWORD_AUTH",
+            AuthParameters={"USERNAME": api_key, "PASSWORD": api_secret},
+            ClientId=config["app_client_id"],
+        )
+
+        authentication_result = login_response["AuthenticationResult"]
+        return authentication_result["AccessToken"], authentication_result["RefreshToken"]
+
+    @staticmethod
+    def _decode_token(token):
+        """Decode a JWT payload without verification (for extracting claims like device_key)."""
+        payload = token.split(".")[1]
+        # JWT base64url encoding may lack padding
+        padding = 4 - len(payload) % 4
+        if padding != 4:
+            payload += "=" * padding
+        return json.loads(base64.urlsafe_b64decode(payload))
+
+    def refresh_token(self, refresh_token, session_token=None):
+        """Use a refresh token to obtain a new access token via Cognito REFRESH_TOKEN_AUTH."""
+        config = self._get_cognito_config()
+        idp_client = self._get_idp_client()
+
+        authentication_parameters = {"REFRESH_TOKEN": refresh_token}
+
+        device_key = None
+        if session_token:
+            try:
+                decoded = self._decode_token(session_token)
+                device_key = decoded.get("device_key")
+                if device_key:
+                    log.info(f"extracted device_key from session token: {device_key}")
+            except Exception as e:
+                log.warning(f"failed to extract device_key from session token: {e}")
+
+        if device_key:
+            authentication_parameters["DEVICE_KEY"] = device_key
+
+        response = idp_client.initiate_auth(
+            AuthFlow="REFRESH_TOKEN_AUTH",
+            AuthParameters=authentication_parameters,
+            ClientId=config["app_client_id"],
+        )
+
+        return response["AuthenticationResult"]["AccessToken"]
+
+
+class TokenAuthenticationProvider(AuthenticationProvider):
+    """Authentication provider for pre-supplied session + refresh tokens (production path)."""
+
+    def __init__(self, api_host, session_token, refresh_token):
+        self._session_token = session_token
+        self._refresh_token = refresh_token
+        self._cognito = CognitoClient(api_host)
+
+    def get_session_token(self) -> str:
+        return self._session_token
+
+    def refresh(self) -> str:
+        if not self._refresh_token:
+            raise RuntimeError("cannot refresh session: no refresh token available")
+        log.info("refreshing session token using refresh token")
+        self._session_token = self._cognito.refresh_token(self._refresh_token, self._session_token)
+        return self._session_token
+
+
+class KeySecretAuthenticationProvider(AuthenticationProvider):
+    """Authentication provider that authenticates with API key/secret (local development path).
+
+    Authenticates eagerly on construction to obtain session + refresh tokens,
+    then refreshes using the same Cognito refresh flow as TokenAuthenticationProvider.
+    """
+
+    def __init__(self, api_host, api_key, api_secret):
+        self._api_key = api_key
+        self._api_secret = api_secret
+        self._cognito = CognitoClient(api_host)
+
+        log.info("authenticating with API key/secret")
+        self._session_token, self._refresh_token = self._cognito.authenticate(api_key, api_secret)
+
+    def get_session_token(self) -> str:
+        return self._session_token
+
+    def refresh(self) -> str:
+        if self._refresh_token:
+            log.info("refreshing session token using refresh token")
+            self._session_token = self._cognito.refresh_token(self._refresh_token, self._session_token)
+        else:
+            log.info("no refresh token, re-authenticating with API key/secret")
+            self._session_token, self._refresh_token = self._cognito.authenticate(self._api_key, self._api_secret)
+        return self._session_token

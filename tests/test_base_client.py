@@ -10,46 +10,34 @@ class TestSessionManager:
     """Tests for SessionManager class."""
 
     def test_initialization(self):
-        """Should initialize with provided values."""
+        """Should initialize with provided authentication provider and host config."""
+        authentication_provider = Mock()
         manager = SessionManager(
+            authentication_provider,
             api_host="https://api.example.com",
             api_host2="https://api2.example.com",
-            api_key="test-key",
-            api_secret="test-secret",
         )
 
         assert manager.api_host == "https://api.example.com"
         assert manager.api_host2 == "https://api2.example.com"
-        assert manager.api_key == "test-key"
-        assert manager.api_secret == "test-secret"
-        assert manager.session_token is None
 
-    def test_set_auth_client(self):
-        """Should store auth client reference."""
-        manager = SessionManager("", "", "", "")
-        auth_client = Mock()
-        manager.set_auth_client(auth_client)
+    def test_session_token_delegates_to_authentication_provider(self):
+        """Should retrieve current session token from the authentication provider."""
+        authentication_provider = Mock()
+        authentication_provider.get_session_token.return_value = "current-token"
+        manager = SessionManager(authentication_provider, "", "")
 
-        assert manager._auth_client == auth_client
+        assert manager.session_token == "current-token"
+        authentication_provider.get_session_token.assert_called_once()
 
-    def test_refresh_session_without_auth_client(self):
-        """Should raise error when refreshing without auth client."""
-        manager = SessionManager("", "", "", "")
-
-        with pytest.raises(RuntimeError, match="Authentication client not set"):
-            manager.refresh_session()
-
-    def test_refresh_session(self):
-        """Should refresh session token via auth client."""
-        manager = SessionManager("", "", "", "")
-        auth_client = Mock()
-        auth_client.authenticate.return_value = "new-token"
-        manager.set_auth_client(auth_client)
+    def test_refresh_session_delegates_to_authentication_provider(self):
+        """Should call refresh on the authentication provider."""
+        authentication_provider = Mock()
+        manager = SessionManager(authentication_provider, "", "")
 
         manager.refresh_session()
 
-        auth_client.authenticate.assert_called_once()
-        assert manager.session_token == "new-token"
+        authentication_provider.refresh.assert_called_once()
 
 
 class TestBaseClient:

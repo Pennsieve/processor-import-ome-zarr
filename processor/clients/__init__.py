@@ -1,15 +1,21 @@
-from .authentication_client import AuthenticationClient
+from .authentication_client import (
+    AuthenticationProvider,
+    CognitoClient,
+    KeySecretAuthenticationProvider,
+    TokenAuthenticationProvider,
+)
 from .base_client import BaseClient, SessionManager
-from .import_client import ImportClient, ImportFile, prepare_import_files
+from .packages_client import PackagesClient
 from .workflow_client import WorkflowClient, WorkflowInstance
 
 __all__ = [
-    "AuthenticationClient",
+    "AuthenticationProvider",
     "BaseClient",
+    "CognitoClient",
+    "KeySecretAuthenticationProvider",
+    "PackagesClient",
     "SessionManager",
-    "ImportClient",
-    "ImportFile",
-    "prepare_import_files",
+    "TokenAuthenticationProvider",
     "WorkflowClient",
     "WorkflowInstance",
 ]

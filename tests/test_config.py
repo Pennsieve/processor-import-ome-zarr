@@ -46,7 +46,9 @@ class TestConfig:
             "OUTPUT_DIR": "/custom/output",
             "PENNSIEVE_API_KEY": "test-key",
             "PENNSIEVE_API_SECRET": "test-secret",
-            "INTEGRATION_ID": "test-workflow-instance",
+            "SESSION_TOKEN": "test-session-token",
+            "REFRESH_TOKEN": "test-refresh-token",
+            "WORKFLOW_INSTANCE_ID": "test-workflow-instance",
             "ASSET_TYPE": "custom-type",
         }
         with patch.dict(os.environ, env, clear=True):
@@ -56,8 +58,17 @@ class TestConfig:
             assert config.OUTPUT_DIR == "/custom/output"
             assert config.PENNSIEVE_API_KEY == "test-key"
             assert config.PENNSIEVE_API_SECRET == "test-secret"
+            assert config.SESSION_TOKEN == "test-session-token"
+            assert config.REFRESH_TOKEN == "test-refresh-token"
             assert config.WORKFLOW_INSTANCE_ID == "test-workflow-instance"
             assert config.ASSET_TYPE == "custom-type"
+
+    def test_token_authentication_defaults_to_none(self):
+        """SESSION_TOKEN/REFRESH_TOKEN default to None when unset."""
+        with patch.dict(os.environ, {}, clear=True):
+            config = Config()
+            assert config.SESSION_TOKEN is None
+            assert config.REFRESH_TOKEN is None
 
     def test_importer_enabled_default_local(self):
         """Should disable importer by default in local environment."""

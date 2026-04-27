@@ -10,60 +10,37 @@ DEFAULT_TIMEOUT = (10, 30)
 
 
 class SessionManager:
-    """Manages API session and authentication tokens."""
+    """Manages API session by delegating token retrieval and refresh to an AuthenticationProvider."""
 
-    def __init__(self, api_host: str, api_host2: str, api_key: str, api_secret: str):
+    def __init__(self, authentication_provider, api_host: str, api_host2: str):
         """
-        Initialize the session manager.
-
         Args:
+            authentication_provider: AuthenticationProvider instance
+                (TokenAuthenticationProvider or KeySecretAuthenticationProvider)
             api_host: Primary Pennsieve API host
-            api_host2: Secondary Pennsieve API host (import service)
-            api_key: Pennsieve API key
-            api_secret: Pennsieve API secret
+            api_host2: Secondary Pennsieve API host (packages / workflow services)
         """
+        self._authentication_provider = authentication_provider
         self.api_host = api_host
         self.api_host2 = api_host2
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.session_token = None
-        self._auth_client = None
 
-    def set_auth_client(self, auth_client):
-        """Set the authentication client for session refresh."""
-        self._auth_client = auth_client
+    @property
+    def session_token(self) -> str:
+        return self._authentication_provider.get_session_token()
 
-    def refresh_session(self):
-        """Refresh the session token."""
-        if self._auth_client is None:
-            raise RuntimeError("Authentication client not set")
-        self.session_token = self._auth_client.authenticate()
-        log.info("Session token refreshed")
+    def refresh_session(self) -> None:
+        self._authentication_provider.refresh()
 
 
 class BaseClient:
     """Base class for API clients with retry logic."""
 
     def __init__(self, session_manager: SessionManager):
-        """
-        Initialize the base client.
-
-        Args:
-            session_manager: SessionManager instance for API access
-        """
         self.session_manager = session_manager
 
     @staticmethod
     def retry_with_refresh(func):
-        """
-        Decorator that retries a request after refreshing the session on 401/403.
-
-        Args:
-            func: Function to wrap
-
-        Returns:
-            Wrapped function with retry logic
-        """
+        """Decorator that retries a request after refreshing the session on 401/403."""
 
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
