@@ -1,5 +1,4 @@
 import logging
-import posixpath
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -89,7 +88,7 @@ class OmeZarrImporter:
 
         try:
             started = time.monotonic()
-            self._upload_files(asset_id, zarr_name, files, credentials)
+            self._upload_files(asset_id, files, credentials)
             elapsed = time.monotonic() - started
             log.info(f"asset_id={asset_id} uploaded {len(files)} files in {elapsed:.1f}s")
 
@@ -109,7 +108,6 @@ class OmeZarrImporter:
     def _upload_files(
         self,
         asset_id: str,
-        zarr_name: str,
         files: list[tuple[str, str]],
         credentials: dict,
     ) -> None:
@@ -141,7 +139,7 @@ class OmeZarrImporter:
         def upload_one(local_path: str, rel_path: str) -> None:
             nonlocal upload_counter
             normalized_rel = rel_path.replace("\\", "/")
-            key = key_prefix + posixpath.join(zarr_name, normalized_rel)
+            key = key_prefix + normalized_rel
             try:
                 _put(local_path, key)
                 with counter_lock:

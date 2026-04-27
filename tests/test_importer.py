@@ -110,8 +110,8 @@ class TestOmeZarrImporter:
         assert mock_s3.upload_file.call_count == 2
         called_keys = sorted(call.args[2] for call in mock_s3.upload_file.call_args_list)
         assert called_keys == [
-            "viewer-assets/O19/D2049/asset-uuid-1/sample.zarr/.zattrs",
-            "viewer-assets/O19/D2049/asset-uuid-1/sample.zarr/0/0/0",
+            "viewer-assets/O19/D2049/asset-uuid-1/.zattrs",
+            "viewer-assets/O19/D2049/asset-uuid-1/0/0/0",
         ]
         for call in mock_s3.upload_file.call_args_list:
             assert call.args[1] == "pennsieve-storage"
@@ -150,7 +150,7 @@ class TestOmeZarrImporter:
         importer.import_zarr("sample.zarr", files)
 
         called_keys = [call.args[2] for call in mock_s3.upload_file.call_args_list]
-        assert called_keys == ["viewer-assets/O19/D2049/asset-uuid-1/sample.zarr/0/0/0"]
+        assert called_keys == ["viewer-assets/O19/D2049/asset-uuid-1/0/0/0"]
 
     @patch("processor.importer.boto3")
     @patch("processor.importer.AuthenticationClient")
