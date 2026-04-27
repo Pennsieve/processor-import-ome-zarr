@@ -8,8 +8,8 @@ import responses
 
 from processor.clients.authentication_client import (
     CognitoClient,
-    KeySecretAuthProvider,
-    TokenAuthProvider,
+    KeySecretAuthenticationProvider,
+    TokenAuthenticationProvider,
 )
 
 
@@ -168,11 +168,11 @@ class TestCognitoClient:
         assert len(responses.calls) == 1
 
 
-class TestTokenAuthProvider:
-    """Tests for TokenAuthProvider (production path: pre-supplied tokens)."""
+class TestTokenAuthenticationProvider:
+    """Tests for TokenAuthenticationProvider (production path: pre-supplied tokens)."""
 
     def test_get_session_token_returns_supplied_token(self):
-        provider = TokenAuthProvider("https://api.test.com", "session-tok", "refresh-tok")
+        provider = TokenAuthenticationProvider("https://api.test.com", "session-tok", "refresh-tok")
         assert provider.get_session_token() == "session-tok"
 
     @responses.activate
@@ -183,7 +183,7 @@ class TestTokenAuthProvider:
         mock_idp.initiate_auth.return_value = {"AuthenticationResult": {"AccessToken": "rotated-token"}}
 
         with patch("processor.clients.authentication_client.boto3.client", return_value=mock_idp):
-            provider = TokenAuthProvider("https://api.test.com", "old-session", "refresh-tok")
+            provider = TokenAuthenticationProvider("https://api.test.com", "old-session", "refresh-tok")
             new_token = provider.refresh()
 
         assert new_token == "rotated-token"
@@ -192,13 +192,13 @@ class TestTokenAuthProvider:
         assert mock_idp.initiate_auth.call_args.kwargs["AuthFlow"] == "REFRESH_TOKEN_AUTH"
 
     def test_refresh_raises_when_no_refresh_token(self):
-        provider = TokenAuthProvider("https://api.test.com", "session-tok", None)
+        provider = TokenAuthenticationProvider("https://api.test.com", "session-tok", None)
         with pytest.raises(RuntimeError, match="no refresh token"):
             provider.refresh()
 
 
-class TestKeySecretAuthProvider:
-    """Tests for KeySecretAuthProvider (local development path: API key/secret)."""
+class TestKeySecretAuthenticationProvider:
+    """Tests for KeySecretAuthenticationProvider (local development path: API key/secret)."""
 
     @responses.activate
     def test_authenticates_eagerly_on_construction(self):
@@ -210,7 +210,7 @@ class TestKeySecretAuthProvider:
         }
 
         with patch("processor.clients.authentication_client.boto3.client", return_value=mock_idp):
-            provider = KeySecretAuthProvider("https://api.test.com", "api-key", "api-secret")
+            provider = KeySecretAuthenticationProvider("https://api.test.com", "api-key", "api-secret")
 
         assert provider.get_session_token() == "initial-tok"
         mock_idp.initiate_auth.assert_called_once_with(
@@ -230,7 +230,7 @@ class TestKeySecretAuthProvider:
         ]
 
         with patch("processor.clients.authentication_client.boto3.client", return_value=mock_idp):
-            provider = KeySecretAuthProvider("https://api.test.com", "api-key", "api-secret")
+            provider = KeySecretAuthenticationProvider("https://api.test.com", "api-key", "api-secret")
             new_token = provider.refresh()
 
         assert new_token == "tok-2"
@@ -239,7 +239,7 @@ class TestKeySecretAuthProvider:
         assert mock_idp.initiate_auth.call_args_list[1].kwargs["AuthFlow"] == "REFRESH_TOKEN_AUTH"
 
     @responses.activate
-    def test_refresh_falls_back_to_reauth_when_no_refresh_token(self):
+    def test_refresh_falls_back_to_reauthentication_when_no_refresh_token(self):
         _add_cognito_config_response()
 
         mock_idp = Mock()
@@ -249,7 +249,7 @@ class TestKeySecretAuthProvider:
         ]
 
         with patch("processor.clients.authentication_client.boto3.client", return_value=mock_idp):
-            provider = KeySecretAuthProvider("https://api.test.com", "api-key", "api-secret")
+            provider = KeySecretAuthenticationProvider("https://api.test.com", "api-key", "api-secret")
             new_token = provider.refresh()
 
         assert new_token == "tok-2"

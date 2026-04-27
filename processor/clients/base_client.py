@@ -10,25 +10,26 @@ DEFAULT_TIMEOUT = (10, 30)
 
 
 class SessionManager:
-    """Manages API session by delegating token retrieval and refresh to an AuthProvider."""
+    """Manages API session by delegating token retrieval and refresh to an AuthenticationProvider."""
 
-    def __init__(self, auth_provider, api_host: str, api_host2: str):
+    def __init__(self, authentication_provider, api_host: str, api_host2: str):
         """
         Args:
-            auth_provider: AuthProvider instance (TokenAuthProvider or KeySecretAuthProvider)
+            authentication_provider: AuthenticationProvider instance
+                (TokenAuthenticationProvider or KeySecretAuthenticationProvider)
             api_host: Primary Pennsieve API host
             api_host2: Secondary Pennsieve API host (packages / workflow services)
         """
-        self._auth_provider = auth_provider
+        self._authentication_provider = authentication_provider
         self.api_host = api_host
         self.api_host2 = api_host2
 
     @property
     def session_token(self) -> str:
-        return self._auth_provider.get_session_token()
+        return self._authentication_provider.get_session_token()
 
     def refresh_session(self) -> None:
-        self._auth_provider.refresh()
+        self._authentication_provider.refresh()
 
 
 class BaseClient:

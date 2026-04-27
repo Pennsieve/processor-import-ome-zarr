@@ -21,7 +21,7 @@ def mock_session_manager():
 
 @pytest.fixture
 def mock_config():
-    """Create a mock configuration (defaults to API key/secret auth)."""
+    """Create a mock configuration (defaults to API key/secret authentication)."""
     config = Mock()
     config.ENVIRONMENT = "local"
     config.INPUT_DIR = "/data/input"

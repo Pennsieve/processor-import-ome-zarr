@@ -11,10 +11,10 @@ from .base_client import DEFAULT_TIMEOUT
 log = logging.getLogger()
 
 
-class AuthProvider(ABC):
+class AuthenticationProvider(ABC):
     """Interface for authentication strategies.
 
-    All auth methods ultimately produce a session token and the ability to
+    All authentication methods ultimately produce a session token and the ability to
     refresh it. Implementations differ only in how they bootstrap.
     """
 
@@ -30,7 +30,7 @@ class AuthProvider(ABC):
 
 
 class CognitoClient:
-    """Shared Cognito interaction logic used by all auth providers."""
+    """Shared Cognito interaction logic used by all authentication providers."""
 
     def __init__(self, api_host):
         self.api_host = api_host
@@ -71,8 +71,8 @@ class CognitoClient:
             ClientId=config["app_client_id"],
         )
 
-        auth_result = login_response["AuthenticationResult"]
-        return auth_result["AccessToken"], auth_result["RefreshToken"]
+        authentication_result = login_response["AuthenticationResult"]
+        return authentication_result["AccessToken"], authentication_result["RefreshToken"]
 
     @staticmethod
     def _decode_token(token):
@@ -89,7 +89,7 @@ class CognitoClient:
         config = self._get_cognito_config()
         idp_client = self._get_idp_client()
 
-        auth_parameters = {"REFRESH_TOKEN": refresh_token}
+        authentication_parameters = {"REFRESH_TOKEN": refresh_token}
 
         device_key = None
         if session_token:
@@ -102,19 +102,19 @@ class CognitoClient:
                 log.warning(f"failed to extract device_key from session token: {e}")
 
         if device_key:
-            auth_parameters["DEVICE_KEY"] = device_key
+            authentication_parameters["DEVICE_KEY"] = device_key
 
         response = idp_client.initiate_auth(
             AuthFlow="REFRESH_TOKEN_AUTH",
-            AuthParameters=auth_parameters,
+            AuthParameters=authentication_parameters,
             ClientId=config["app_client_id"],
         )
 
         return response["AuthenticationResult"]["AccessToken"]
 
 
-class TokenAuthProvider(AuthProvider):
-    """Auth provider for pre-supplied session + refresh tokens (production path)."""
+class TokenAuthenticationProvider(AuthenticationProvider):
+    """Authentication provider for pre-supplied session + refresh tokens (production path)."""
 
     def __init__(self, api_host, session_token, refresh_token):
         self._session_token = session_token
@@ -132,11 +132,11 @@ class TokenAuthProvider(AuthProvider):
         return self._session_token
 
 
-class KeySecretAuthProvider(AuthProvider):
-    """Auth provider that authenticates with API key/secret (local development path).
+class KeySecretAuthenticationProvider(AuthenticationProvider):
+    """Authentication provider that authenticates with API key/secret (local development path).
 
     Authenticates eagerly on construction to obtain session + refresh tokens,
-    then refreshes using the same Cognito refresh flow as TokenAuthProvider.
+    then refreshes using the same Cognito refresh flow as TokenAuthenticationProvider.
     """
 
     def __init__(self, api_host, api_key, api_secret):

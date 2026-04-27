@@ -29,8 +29,8 @@ class TestOmeZarrImporter:
         assert importer.packages_client is None
         assert importer.workflow_client is None
 
-    @patch("processor.importer.KeySecretAuthProvider")
-    @patch("processor.importer.TokenAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
+    @patch("processor.importer.TokenAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -68,8 +68,8 @@ class TestOmeZarrImporter:
         mock_pkg_class.assert_called_once_with(mock_session_manager)
         mock_wf_class.assert_called_once_with(mock_session_manager)
 
-    @patch("processor.importer.KeySecretAuthProvider")
-    @patch("processor.importer.TokenAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
+    @patch("processor.importer.TokenAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -113,7 +113,7 @@ class TestOmeZarrImporter:
             importer._initialize_clients()
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -181,7 +181,7 @@ class TestOmeZarrImporter:
         mock_packages_client.delete_viewer_asset.assert_not_called()
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -214,7 +214,7 @@ class TestOmeZarrImporter:
         assert called_keys == ["viewer-assets/O19/D2049/asset-uuid-1/0/0/0"]
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -250,7 +250,7 @@ class TestOmeZarrImporter:
         mock_packages_client.update_viewer_asset_status.assert_not_called()
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.KeySecretAuthenticationProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")

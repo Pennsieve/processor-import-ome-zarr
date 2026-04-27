@@ -63,7 +63,7 @@ class TestConfig:
             assert config.WORKFLOW_INSTANCE_ID == "test-workflow-instance"
             assert config.ASSET_TYPE == "custom-type"
 
-    def test_token_auth_defaults_to_none(self):
+    def test_token_authentication_defaults_to_none(self):
         """SESSION_TOKEN/REFRESH_TOKEN default to None when unset."""
         with patch.dict(os.environ, {}, clear=True):
             config = Config()

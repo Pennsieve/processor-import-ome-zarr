@@ -10,10 +10,10 @@ class TestSessionManager:
     """Tests for SessionManager class."""
 
     def test_initialization(self):
-        """Should initialize with provided auth provider and host config."""
-        auth_provider = Mock()
+        """Should initialize with provided authentication provider and host config."""
+        authentication_provider = Mock()
         manager = SessionManager(
-            auth_provider,
+            authentication_provider,
             api_host="https://api.example.com",
             api_host2="https://api2.example.com",
         )
@@ -21,23 +21,23 @@ class TestSessionManager:
         assert manager.api_host == "https://api.example.com"
         assert manager.api_host2 == "https://api2.example.com"
 
-    def test_session_token_delegates_to_auth_provider(self):
-        """Should retrieve current session token from the auth provider."""
-        auth_provider = Mock()
-        auth_provider.get_session_token.return_value = "current-token"
-        manager = SessionManager(auth_provider, "", "")
+    def test_session_token_delegates_to_authentication_provider(self):
+        """Should retrieve current session token from the authentication provider."""
+        authentication_provider = Mock()
+        authentication_provider.get_session_token.return_value = "current-token"
+        manager = SessionManager(authentication_provider, "", "")
 
         assert manager.session_token == "current-token"
-        auth_provider.get_session_token.assert_called_once()
+        authentication_provider.get_session_token.assert_called_once()
 
-    def test_refresh_session_delegates_to_auth_provider(self):
-        """Should call refresh on the auth provider."""
-        auth_provider = Mock()
-        manager = SessionManager(auth_provider, "", "")
+    def test_refresh_session_delegates_to_authentication_provider(self):
+        """Should call refresh on the authentication provider."""
+        authentication_provider = Mock()
+        manager = SessionManager(authentication_provider, "", "")
 
         manager.refresh_session()
 
-        auth_provider.refresh.assert_called_once()
+        authentication_provider.refresh.assert_called_once()
 
 
 class TestBaseClient:

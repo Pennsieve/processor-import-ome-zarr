@@ -26,7 +26,7 @@ processor-import-ome-zarr/
 │   ├── utils.py                 # Utility functions
 │   └── clients/                 # API clients
 │       ├── base_client.py       # Base client with retry logic
-│       ├── authentication_client.py  # AWS Cognito auth
+│       ├── authentication_client.py  # AWS Cognito authentication
 │       ├── import_client.py     # Import manifest API
 │       └── workflow_client.py   # Workflow management API
 ├── tests/                       # Test suite
@@ -46,10 +46,10 @@ Configuration is managed through environment variables:
 | `OUTPUT_DIR` | Directory for extracted files | Required |
 | `PENNSIEVE_API_HOST` | Pennsieve API host | `https://api.pennsieve.net` |
 | `PENNSIEVE_API_HOST2` | Pennsieve import service host | `https://api2.pennsieve.net` |
-| `SESSION_TOKEN` | Pre-supplied Cognito access token (production path) | One auth method required for import |
+| `SESSION_TOKEN` | Pre-supplied Cognito access token (production path) | One authentication method required for import |
 | `REFRESH_TOKEN` | Pre-supplied Cognito refresh token (used with `SESSION_TOKEN`) | Optional |
-| `PENNSIEVE_API_KEY` | Pennsieve API key (local development path) | One auth method required for import |
-| `PENNSIEVE_API_SECRET` | Pennsieve API secret (local development path) | One auth method required for import |
+| `PENNSIEVE_API_KEY` | Pennsieve API key (local development path) | One authentication method required for import |
+| `PENNSIEVE_API_SECRET` | Pennsieve API secret (local development path) | One authentication method required for import |
 | `WORKFLOW_INSTANCE_ID` | Workflow instance UUID | Required for import |
 | `IMPORTER_ENABLED` | Enable Pennsieve upload | `false` (local), `true` (other) |
 | `ASSET_TYPE` | Viewer asset type | `ome-zarr` |
