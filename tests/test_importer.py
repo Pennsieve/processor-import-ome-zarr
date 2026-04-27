@@ -29,30 +29,91 @@ class TestOmeZarrImporter:
         assert importer.packages_client is None
         assert importer.workflow_client is None
 
-    @patch("processor.importer.AuthenticationClient")
+    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.TokenAuthProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
-    def test_initialize_clients(self, mock_sm_class, mock_wf_class, mock_pkg_class, mock_auth_class, mock_config):
+    def test_initialize_clients_with_session_token(
+        self,
+        mock_sm_class,
+        mock_wf_class,
+        mock_pkg_class,
+        mock_token_provider_class,
+        mock_keysecret_provider_class,
+        mock_config,
+    ):
+        mock_config.SESSION_TOKEN = "preset-session-token"
+        mock_config.REFRESH_TOKEN = "preset-refresh-token"
+
         mock_session_manager = Mock()
         mock_sm_class.return_value = mock_session_manager
+        mock_provider = Mock()
+        mock_token_provider_class.return_value = mock_provider
 
         importer = OmeZarrImporter(mock_config)
         importer._initialize_clients()
 
+        mock_token_provider_class.assert_called_once_with(
+            mock_config.PENNSIEVE_API_HOST,
+            "preset-session-token",
+            "preset-refresh-token",
+        )
+        mock_keysecret_provider_class.assert_not_called()
         mock_sm_class.assert_called_once_with(
+            mock_provider,
             api_host=mock_config.PENNSIEVE_API_HOST,
             api_host2=mock_config.PENNSIEVE_API_HOST2,
-            api_key=mock_config.PENNSIEVE_API_KEY,
-            api_secret=mock_config.PENNSIEVE_API_SECRET,
         )
-        mock_auth_class.assert_called_once_with(mock_session_manager)
-        mock_auth_class.return_value.authenticate.assert_called_once()
         mock_pkg_class.assert_called_once_with(mock_session_manager)
         mock_wf_class.assert_called_once_with(mock_session_manager)
 
+    @patch("processor.importer.KeySecretAuthProvider")
+    @patch("processor.importer.TokenAuthProvider")
+    @patch("processor.importer.PackagesClient")
+    @patch("processor.importer.WorkflowClient")
+    @patch("processor.importer.SessionManager")
+    def test_initialize_clients_with_api_key_secret(
+        self,
+        mock_sm_class,
+        mock_wf_class,
+        mock_pkg_class,
+        mock_token_provider_class,
+        mock_keysecret_provider_class,
+        mock_config,
+    ):
+        mock_session_manager = Mock()
+        mock_sm_class.return_value = mock_session_manager
+        mock_provider = Mock()
+        mock_keysecret_provider_class.return_value = mock_provider
+
+        importer = OmeZarrImporter(mock_config)
+        importer._initialize_clients()
+
+        mock_keysecret_provider_class.assert_called_once_with(
+            mock_config.PENNSIEVE_API_HOST,
+            mock_config.PENNSIEVE_API_KEY,
+            mock_config.PENNSIEVE_API_SECRET,
+        )
+        mock_token_provider_class.assert_not_called()
+        mock_sm_class.assert_called_once_with(
+            mock_provider,
+            api_host=mock_config.PENNSIEVE_API_HOST,
+            api_host2=mock_config.PENNSIEVE_API_HOST2,
+        )
+
+    def test_initialize_clients_raises_when_no_credentials(self, mock_config):
+        mock_config.SESSION_TOKEN = None
+        mock_config.PENNSIEVE_API_KEY = None
+        mock_config.PENNSIEVE_API_SECRET = None
+
+        importer = OmeZarrImporter(mock_config)
+
+        with pytest.raises(RuntimeError, match="no authentication credentials"):
+            importer._initialize_clients()
+
     @patch("processor.importer.boto3")
-    @patch("processor.importer.AuthenticationClient")
+    @patch("processor.importer.KeySecretAuthProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -61,7 +122,7 @@ class TestOmeZarrImporter:
         mock_sm_class,
         mock_wf_class,
         mock_pkg_class,
-        mock_auth_class,
+        mock_keysecret_provider_class,
         mock_boto3,
         mock_config,
     ):
@@ -120,7 +181,7 @@ class TestOmeZarrImporter:
         mock_packages_client.delete_viewer_asset.assert_not_called()
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.AuthenticationClient")
+    @patch("processor.importer.KeySecretAuthProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -129,7 +190,7 @@ class TestOmeZarrImporter:
         mock_sm_class,
         mock_wf_class,
         mock_pkg_class,
-        mock_auth_class,
+        mock_keysecret_provider_class,
         mock_boto3,
         mock_config,
     ):
@@ -153,7 +214,7 @@ class TestOmeZarrImporter:
         assert called_keys == ["viewer-assets/O19/D2049/asset-uuid-1/0/0/0"]
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.AuthenticationClient")
+    @patch("processor.importer.KeySecretAuthProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -162,7 +223,7 @@ class TestOmeZarrImporter:
         mock_sm_class,
         mock_wf_class,
         mock_pkg_class,
-        mock_auth_class,
+        mock_keysecret_provider_class,
         mock_boto3,
         mock_config,
     ):
@@ -189,7 +250,7 @@ class TestOmeZarrImporter:
         mock_packages_client.update_viewer_asset_status.assert_not_called()
 
     @patch("processor.importer.boto3")
-    @patch("processor.importer.AuthenticationClient")
+    @patch("processor.importer.KeySecretAuthProvider")
     @patch("processor.importer.PackagesClient")
     @patch("processor.importer.WorkflowClient")
     @patch("processor.importer.SessionManager")
@@ -198,7 +259,7 @@ class TestOmeZarrImporter:
         mock_sm_class,
         mock_wf_class,
         mock_pkg_class,
-        mock_auth_class,
+        mock_keysecret_provider_class,
         mock_boto3,
         mock_config,
     ):

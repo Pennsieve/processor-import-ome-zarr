@@ -8,9 +8,10 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from processor.clients import (
-    AuthenticationClient,
+    KeySecretAuthProvider,
     PackagesClient,
     SessionManager,
+    TokenAuthProvider,
     WorkflowClient,
 )
 from processor.config import Config
@@ -29,15 +30,28 @@ class OmeZarrImporter:
 
     def _initialize_clients(self) -> None:
         """Initialize API clients and authenticate."""
+        if self.config.SESSION_TOKEN:
+            auth_provider = TokenAuthProvider(
+                self.config.PENNSIEVE_API_HOST,
+                self.config.SESSION_TOKEN,
+                self.config.REFRESH_TOKEN,
+            )
+        elif self.config.PENNSIEVE_API_KEY and self.config.PENNSIEVE_API_SECRET:
+            auth_provider = KeySecretAuthProvider(
+                self.config.PENNSIEVE_API_HOST,
+                self.config.PENNSIEVE_API_KEY,
+                self.config.PENNSIEVE_API_SECRET,
+            )
+        else:
+            raise RuntimeError(
+                "no authentication credentials provided: set SESSION_TOKEN or PENNSIEVE_API_KEY/PENNSIEVE_API_SECRET"
+            )
+
         self.session_manager = SessionManager(
+            auth_provider,
             api_host=self.config.PENNSIEVE_API_HOST,
             api_host2=self.config.PENNSIEVE_API_HOST2,
-            api_key=self.config.PENNSIEVE_API_KEY,
-            api_secret=self.config.PENNSIEVE_API_SECRET,
         )
-
-        auth_client = AuthenticationClient(self.session_manager)
-        auth_client.authenticate()
 
         self.packages_client = PackagesClient(self.session_manager)
         self.workflow_client = WorkflowClient(self.session_manager)

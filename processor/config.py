@@ -20,6 +20,11 @@ class Config:
         # Pennsieve API configuration
         self.PENNSIEVE_API_HOST = os.getenv("PENNSIEVE_API_HOST", "https://api.pennsieve.net")
         self.PENNSIEVE_API_HOST2 = os.getenv("PENNSIEVE_API_HOST2", "https://api2.pennsieve.net")
+
+        # Authentication: prefer pre-supplied Cognito tokens (production path),
+        # fall back to API key/secret (local development path).
+        self.SESSION_TOKEN = os.getenv("SESSION_TOKEN")
+        self.REFRESH_TOKEN = os.getenv("REFRESH_TOKEN")
         self.PENNSIEVE_API_KEY = os.getenv("PENNSIEVE_API_KEY")
         self.PENNSIEVE_API_SECRET = os.getenv("PENNSIEVE_API_SECRET")
 

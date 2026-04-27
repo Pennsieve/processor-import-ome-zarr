@@ -15,21 +15,21 @@ def mock_session_manager():
     manager.session_token = "mock-token-12345"
     manager.api_host = "https://api.pennsieve.net"
     manager.api_host2 = "https://api2.pennsieve.net"
-    manager.api_key = "mock-api-key"
-    manager.api_secret = "mock-api-secret"
     manager.refresh_session = Mock()
     return manager
 
 
 @pytest.fixture
 def mock_config():
-    """Create a mock configuration."""
+    """Create a mock configuration (defaults to API key/secret auth)."""
     config = Mock()
     config.ENVIRONMENT = "local"
     config.INPUT_DIR = "/data/input"
     config.OUTPUT_DIR = "/data/output"
     config.PENNSIEVE_API_HOST = "https://api.pennsieve.net"
     config.PENNSIEVE_API_HOST2 = "https://api2.pennsieve.net"
+    config.SESSION_TOKEN = None
+    config.REFRESH_TOKEN = None
     config.PENNSIEVE_API_KEY = "mock-api-key"
     config.PENNSIEVE_API_SECRET = "mock-api-secret"
     config.WORKFLOW_INSTANCE_ID = "mock-workflow-instance-id"

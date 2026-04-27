@@ -32,10 +32,13 @@ def main():
     if config.IMPORTER_ENABLED:
         if not config.WORKFLOW_INSTANCE_ID:
             raise ValueError("WORKFLOW_INSTANCE_ID is required when importer is enabled")
-        if not config.PENNSIEVE_API_KEY:
-            raise ValueError("PENNSIEVE_API_KEY is required when importer is enabled")
-        if not config.PENNSIEVE_API_SECRET:
-            raise ValueError("PENNSIEVE_API_SECRET is required when importer is enabled")
+        has_token_auth = bool(config.SESSION_TOKEN)
+        has_key_auth = bool(config.PENNSIEVE_API_KEY and config.PENNSIEVE_API_SECRET)
+        if not (has_token_auth or has_key_auth):
+            raise ValueError(
+                "authentication is required when importer is enabled: "
+                "set SESSION_TOKEN (with optional REFRESH_TOKEN) or PENNSIEVE_API_KEY/PENNSIEVE_API_SECRET"
+            )
 
         importer = OmeZarrImporter(config)
         try:
